@@ -89,7 +89,7 @@ export class Store {
       const now = Date.now();
       const fresh = mode === 'demo' ? catalog : catalog.filter(article => isFresh(article, now));
       if (edition && (!operationId || !reader.editionId || reader.layoutVersion !== LAYOUT_VERSION)) {
-        fillEdition(reader, catalog, edition, mode === 'demo' ? () => 0 : Math.random, fresh);
+        fillEdition(reader, catalog, edition, mode === 'demo' ? () => 0 : Math.random, fresh, mode === 'live');
       }
       if (operationId && change && !this.db.prepare('SELECT 1 FROM requests WHERE reader_id = ? AND id = ?').get(id, operationId)) {
         change(reader, catalog, fresh, now);

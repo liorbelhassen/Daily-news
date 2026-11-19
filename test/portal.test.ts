@@ -22,7 +22,7 @@ function story(name: string, category: Article['category'], topics: string[], so
     publishedAt: edition.at, source, region: category === 'discover' ? 'עולם' : 'קליפורניה', topics };
 }
 
-test('plus prefers its subtopic and minus recycles other topics before leaving its section', () => {
+test('plus prefers its subtopic and minus never recycles an already shown topic', () => {
   const before = story('before', 'market', ['גיוסי AI', 'גיוסים']);
   const related = story('another fundraising', 'market', ['גיוסי AI', 'גיוסים']);
   const different = story('different', 'market', ['רכישות']);
@@ -39,14 +39,14 @@ test('plus prefers its subtopic and minus recycles other topics before leaving i
   assert.equal(reader.slots[0].articleId, different.id);
   assert.equal(reader.slots[0].categoryId, 'market');
   assert.equal(applyVote(reader, 'market-slot', different.id, -1, catalog, catalog, now), true);
-  assert.equal(reader.slots[0].articleId, before.id);
+  assert.equal(reader.slots[0].articleId, different.id);
   assert.equal(reader.slots[0].categoryId, 'market');
   assert.equal(undoVote(reader), true);
   assert.equal(reader.slots[0].articleId, different.id);
   assert.equal(reader.slots[0].id, 'market-slot');
   assert.ok(reader.seen.includes(before.eventId));
   assert.equal(applyVote(reader, 'market-slot', different.id, 1, catalog, catalog, now), true);
-  assert.equal(reader.slots[0].articleId, related.id);
+  assert.equal(reader.slots[0].articleId, different.id);
   resetPreferences(reader);
   assert.deepEqual(reader.weights, {});
   assert.equal(reader.seen.length, 3);
@@ -55,9 +55,10 @@ test('plus prefers its subtopic and minus recycles other topics before leaving i
 test('personal queries match bilingual synonyms in the geographic scope, and plus stays in the selected category', () => {
   const first = story('robot assisted surgery', 'market', ['גיוסים']);
   const next = story('a surgical robot', 'market', ['רובוטיקה רפואית']);
+  const alternate = story('a new surgical robot', 'ai', ['רובוטיקה רפואית']);
   const outOfScope = { ...story('medical robotics in Munich', 'market', ['רובוטיקה רפואית']), region: 'גרמניה' };
   const unrelated = story('unrelated fundraise', 'market', ['גיוסים']);
-  const catalog = [first, unrelated, next, outOfScope];
+  const catalog = [first, unrelated, next, alternate, outOfScope];
   const reader = newReader();
   reader.custom = [{ id: 'custom', label: 'רובוטיקה רפואית', color: 'custom-0' },
     { id: 'unmatched', label: 'צלילה באיסלנד', color: 'custom-1' }];
@@ -72,11 +73,11 @@ test('personal queries match bilingual synonyms in the geographic scope, and plu
   const personal = reader.slots.find(slot => slot.categoryId === 'custom')!;
   assert.equal(personal.articleId, next.id);
   assert.equal(applyVote(reader, personal.id, next.id, 1, catalog, catalog, now), true);
-  assert.equal(personal.articleId, first.id);
+  assert.equal(personal.articleId, alternate.id);
   assert.equal(personal.categoryId, 'custom');
 });
 
-test('240 votes keep six distinct stories in each demo category and change only the voted slot', () => {
+test('consecutive votes on different cards never resurface a story, even after the demo catalog runs out', () => {
   const catalog = demoArticles(now);
   const reader = newReader();
   fillEdition(reader, catalog, edition, () => 0);
@@ -87,9 +88,10 @@ test('240 votes keep six distinct stories in each demo category and change only 
   const slotIds = reader.slots.map(slot => slot.id);
   const slotCount = slotIds.length;
   const byId = new Map(catalog.map(article => [article.id, article]));
-  let recycled = false;
+  let replacements = 0;
   for (let index = 0; index < 240; index++) {
-    const position = index % slotCount;
+    // Vote on adjacent cards in the same category before moving to the next page.
+    const position = (index + 12) % slotCount;
     const slot = reader.slots[position];
     const previous = slot.articleId;
     const otherIds = reader.slots.filter(other => other !== slot).map(other => other.articleId);
@@ -97,15 +99,31 @@ test('240 votes keep six distinct stories in each demo category and change only 
     const direction = Math.floor(index / slotCount) % 2 ? -1 : 1;
     assert.equal(applyVote(reader, slot.id, previous!, direction, catalog, catalog, now, () => 0.4), true);
     assert.ok(slot.articleId);
-    assert.notEqual(slot.articleId, previous);
+    if (index < 2) assert.notEqual(slot.articleId, previous);
+    if (slot.articleId !== previous) {
+      assert.ok(!seen.has(byId.get(slot.articleId)!.eventId));
+      replacements++;
+    }
     const visible = reader.slots.filter(other => other.categoryId === slot.categoryId);
     assert.equal(new Set(visible.map(other => byId.get(other.articleId!)!.eventId)).size, 6);
     assert.equal(byId.get(slot.articleId)!.category, slot.categoryId);
     assert.deepEqual(reader.slots.map(other => other.id), slotIds);
     assert.deepEqual(reader.slots.filter(other => other !== slot).map(other => other.articleId), otherIds);
-    if (seen.has(byId.get(slot.articleId)!.eventId)) recycled = true;
   }
-  assert.ok(recycled);
+  assert.equal(replacements, catalog.length - slotCount);
+});
+
+test('minus uses an unseen same-topic story over a seen event with another headline', () => {
+  const current = story('current model', 'ai', ['מודלים']);
+  const previouslyShown = story('older product', 'ai', ['מוצרים']);
+  const duplicate = { ...story('older product covered elsewhere', 'ai', ['מוצרים']), eventId: previouslyShown.eventId };
+  const newStory = story('unseen model', 'ai', ['מודלים']);
+  const reader = newReader();
+  reader.slots = [{ id: 'model-slot', categoryId: 'ai', discovery: false, articleId: current.id }];
+  reader.seen = [current.eventId, previouslyShown.eventId];
+  const catalog = [current, duplicate, newStory];
+  assert.ok(applyVote(reader, 'model-slot', current.id, -1, catalog, catalog, now));
+  assert.equal(reader.slots[0].articleId, newStory.id);
 });
 
 test('full editions reserve alternates, recover older sections, and keep a sole article visible if inventory is exhausted', () => {
@@ -144,7 +162,7 @@ test('exactly six matching stories fill the page even when there is no spare', (
 
 test('a personal category uses the full matching catalog and keeps its cards on topic', () => {
   const reader = newReader();
-  const matching = Array.from({ length: 8 }, (_, i) =>
+  const matching = Array.from({ length: 20 }, (_, i) =>
     story(`surgical robot ${i}`, i % 2 ? 'market' : 'ai', ['רובוטיקה רפואית']));
   const unrelated = Array.from({ length: 6 }, (_, i) => story(`company acquisition ${i}`, 'market', ['רכישות']));
   const catalog = [...matching, ...unrelated];
@@ -165,14 +183,15 @@ test('undo restores the voted category slot without touching a newly created per
   const reader = newReader();
   const initial = story('robot assisted surgery', 'market', ['רובוטיקה רפואית']);
   const replacement = story('company acquisition', 'market', ['רכישות']);
+  const newMatch = story('new surgical robot', 'market', ['רובוטיקה רפואית']);
   const catalog = [initial, replacement];
   fillEdition(reader, catalog, edition);
   const [slot] = reader.slots;
   assert.equal(applyVote(reader, slot.id, initial.id, 1, catalog, catalog, now), true);
   reader.custom.push({ id: 'custom', label: 'רובוטיקה רפואית', color: 'custom-0' });
-  populateCategory(reader, 'custom', catalog, now);
+  populateCategory(reader, 'custom', [...catalog, newMatch], now);
   const personal = reader.slots.find(item => item.categoryId === 'custom')!;
-  assert.equal(personal.articleId, initial.id);
+  assert.equal(personal.articleId, newMatch.id);
   assert.ok(undoVote(reader));
   assert.equal(reader.slots.length, 2);
   assert.equal(reader.slots[0].articleId, initial.id);
@@ -201,7 +220,7 @@ test('after 20 votes in one field, discovery keeps its six cards and rotates acr
   assert.equal(reader.slots.filter(slot => slot.discovery).length, 6);
   const fixed = reader.slots.find(slot => slot.discovery)!;
   assert.ok(fixed.articleId);
-  assert.ok(!slotIds.includes(fixed.id));
+  assert.deepEqual(reader.slots.map(slot => slot.id), slotIds);
   const exposures = new Set<string>();
   const sources = new Set<string>();
   for (let i = 0; i < 20; i++) {
@@ -256,6 +275,12 @@ test('SQLite persists isolated readers, personal categories, idempotency keys an
     const undone = db.board(readerId, 'demo', 'idle', randomUUID(), reader => { assert.ok(undoVote(reader)); });
     assert.equal(undone.slots.find(slot => slot.id === ai.id)?.articleId, ai.articleId);
     assert.equal(undone.canUndo, false);
+    const votedAgain = db.board(readerId, 'demo', 'idle', randomUUID(), (reader, catalog, fresh) => {
+      assert.ok(applyVote(reader, ai.id, ai.articleId!, 1, catalog, fresh, now));
+    });
+    const nextArticle = votedAgain.slots.find(slot => slot.id === ai.id)?.articleId;
+    assert.notEqual(nextArticle, ai.articleId);
+    assert.notEqual(nextArticle, vote.slots.find(slot => slot.id === ai.id)?.articleId);
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true });
@@ -289,11 +314,12 @@ test('a vote arriving during a scheduled refresh finishes in the still-visible e
     const first = story('first model', 'ai', ['מודלים']);
     const next = story('second model', 'ai', ['מודלים']);
     const reserve = story('model reserve', 'ai', ['מודלים']);
+    const standby = story('model standby', 'ai', ['מודלים']);
     db.saveEdition(edition, [first]);
     const before = db.board(user, 'live', 'idle');
     const slot = before.slots[0];
     const secondEdition = { id: 'next edition', at: edition.at };
-    db.saveEdition(secondEdition, [next, reserve]);
+    db.saveEdition(secondEdition, [next, reserve, standby]);
     const voted = db.board(user, 'live', 'idle', randomUUID(), (reader, catalog, fresh) => {
       assert.equal(applyVote(reader, slot.id, slot.articleId!, 1, catalog, fresh, now), true);
     });
@@ -302,7 +328,8 @@ test('a vote arriving during a scheduled refresh finishes in the still-visible e
     assert.equal(voted.slots[0].articleId, next.id);
     const refreshed = db.board(user, 'live', 'idle');
     assert.equal(refreshed.edition?.id, secondEdition.id);
-    assert.equal(refreshed.slots[0].articleId, reserve.id);
+    assert.deepEqual(refreshed.slots.map(item => item.articleId), [next.id, reserve.id]);
+    assert.equal(refreshed.slots[0].id, slot.id);
   } finally {
     db.close();
   }
@@ -315,7 +342,9 @@ test('upgrading an existing reader refills exhausted slots and keeps saved prefe
     db.saveEdition(edition, demoArticles(now));
     db.board(readerId, 'demo', 'idle', randomUUID(), reader => {
       reader.layoutVersion = 1;
-      for (const slot of reader.slots) slot.articleId = null;
+      reader.slots = reader.slots.filter((slot, index) => index % 6 === 0);
+      const catalog = demoArticles(now);
+      reader.seen = reader.slots.map(slot => catalog.find(article => article.id === slot.articleId)!.eventId);
       reader.weights['חלל'] = 2;
       reader.custom.push({ id: 'test-robotics', label: 'רובוטיקה רפואית', color: 'custom-0' });
     });
