@@ -16,9 +16,9 @@ const refresher = createRefresher(store);
 const data = { mode, refresh: refresher.status } as const;
 if (mode === 'demo') {
   const edition = store.edition();
-  if (!edition || edition.id === 'demo-v1') {
+  if (!edition || edition.id === 'demo-v1' || edition.id === 'demo-v2') {
     const now = Date.now();
-    store.saveEdition({ id: 'demo-v2', at: new Date(now).toISOString() }, demoArticles(now));
+    store.saveEdition({ id: 'demo-v3', at: new Date(now).toISOString() }, demoArticles(now));
   }
 }
 const scheduler = mode === 'live' ? cron.schedule(EDITION_SCHEDULE, () => refresher.run(), {

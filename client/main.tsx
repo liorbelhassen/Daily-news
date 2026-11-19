@@ -175,7 +175,7 @@ function App() {
       slotId: slot.id, articleId: slot.article.id, vote: direction,
     }, slot.id, next => {
       const replacement = next.slots.find(item => item.id === slot.id)?.article;
-      setNotice(replacement?.id === slot.article?.id ? 'הכתבה נשארה במשבצת עד שתהיה חלופה זמינה.' :
+      setNotice(replacement?.id === slot.article?.id ? 'אין כרגע כתבה שטרם הוצגה בקטגוריה הזו. הכתבה הנוכחית נשארה במשבצת.' :
         replacement ? 'כתבה חדשה הופיעה באותה משבצת.' : 'אין כרגע כתבה נוספת מתאימה.');
     });
   }

@@ -12,6 +12,8 @@ const fixtures: Record<BuiltIn, Item[]> = {
     ['Evolution 101', 'איך חוקרים את האבולוציה של החיים על פני כדור הארץ?', 'UC Berkeley', 'https://evolution.berkeley.edu/evolution-101/', 'עולם', 'מדע'],
     ['Heat pump systems', 'כיצד משאבת חום מחממת ומקררת את הבית?', 'U.S. Department of Energy', 'https://www.energy.gov/energysaver/heat-pump-systems', 'ארה״ב', 'טכנולוגיה שימושית', 'אנרגיה'],
     ['Coral reef ecosystems', 'מה הופך את שוניות האלמוגים לבית גידול עשיר כל כך?', 'NOAA', 'https://www.noaa.gov/education/resource-collections/marine-life/coral-reef-ecosystems', 'עולם', 'מדע', 'אקלים'],
+    ['What are El Niño and La Niña?', 'איך אל ניניו ולה ניניה משנים את מזג האוויר?', 'NOAA', 'https://oceanservice.noaa.gov/facts/ninonina.html', 'עולם', 'אקלים'],
+    ['How does the water cycle work?', 'איך המים נעים בין האוקיינוסים, היבשה והאטמוספרה?', 'NASA', 'https://science.nasa.gov/earth/earth-observatory/the-water-cycle/', 'עולם', 'מדע', 'אקלים'],
   ],
   ai: [
     ['Introducing GPT-4.5', 'OpenAI מציגה את GPT‑4.5, מודל שפה חדש', 'OpenAI', 'https://openai.com/index/introducing-gpt-4-5/', 'קליפורניה', 'מודלים'],
@@ -21,6 +23,8 @@ const fixtures: Record<BuiltIn, Item[]> = {
     ['DeepSeek-R1 release', 'דיפסיק מפרסמת את מודל ההסקה DeepSeek‑R1', 'DeepSeek', 'https://api-docs.deepseek.com/news/news250120', 'סין', 'מודלים'],
     ['Introducing ChatGPT search', 'חיפוש ברשת מגיע ל־ChatGPT', 'OpenAI', 'https://openai.com/index/introducing-chatgpt-search/', 'קליפורניה', 'מוצרי AI'],
     ['Anthropic introduces Claude 3.5 Sonnet', 'אנתרופיק מציגה את Claude 3.5 Sonnet ואת סביבת העבודה Artifacts', 'Anthropic', 'https://www.anthropic.com/news/claude-3-5-sonnet', 'קליפורניה', 'מודלים', 'מוצרי AI'],
+    ['Apple Core ML brings machine learning models to devices', 'איך Core ML מאפשר לאפליקציות להריץ מודלי למידת מכונה על המכשיר?', 'Apple Developer', 'https://developer.apple.com/documentation/coreml/', 'קליפורניה', 'מוצרי AI', 'מודלים'],
+    ['Introducing Apple Intelligence for iPhone, iPad, and Mac', 'אפל מציגה את Apple Intelligence לאייפון, לאייפד ולמק', 'Apple', 'https://www.apple.com/newsroom/2024/06/introducing-apple-intelligence-for-iphone-ipad-and-mac/', 'קליפורניה', 'מוצרי AI'],
   ],
   chips: [
     ['NVIDIA Rubin for high-performance computing', 'אנבידיה חושפת מעבד גרפי לסימולציות ולמחקר מדעי', 'NVIDIA', 'https://blogs.nvidia.com/blog/rubin-hpc/', 'קליפורניה', 'מעבדים'],
@@ -30,6 +34,8 @@ const fixtures: Record<BuiltIn, Item[]> = {
     ['Google Cloud introduces Axion Arm processors', 'גוגל קלאוד מציגה את Axion, מעבד מבוסס Arm לשרתים', 'Google Cloud', 'https://cloud.google.com/blog/products/compute/introducing-googles-new-arm-based-cpu', 'קליפורניה', 'מרכזי נתונים', 'מעבדים'],
     ['Apple unveils M3, M3 Pro and M3 Max', 'אפל חושפת את משפחת שבבי M3 למחשבי מק', 'Apple', 'https://www.apple.com/newsroom/2023/10/apple-unveils-m3-m3-pro-and-m3-max-the-most-advanced-chips-for-a-personal-computer/', 'קליפורניה', 'מעבדים'],
     ['Introduction to Google Cloud TPUs', 'מהם מאיצי ה־TPU של גוגל ואיך הם משמשים ללמידת מכונה?', 'Google Cloud', 'https://cloud.google.com/tpu/docs/intro-to-tpu', 'קליפורניה', 'מאיצי AI', 'מרכזי נתונים'],
+    ['Google Cloud announces Ironwood inference TPU', 'גוגל מציגה את Ironwood, מאיץ שמיועד להרצת מודלי AI', 'Google Cloud', 'https://blog.google/products/google-cloud/ironwood-tpu-age-of-inference/', 'קליפורניה', 'מאיצי AI', 'מרכזי נתונים'],
+    ['Apple unveils M2 processor for Mac', 'אפל חושפת את שבב M2 למחשבי מק', 'Apple', 'https://www.apple.com/newsroom/2022/06/apple-unveils-m2-with-breakthrough-performance-and-capabilities/', 'קליפורניה', 'מעבדים'],
   ],
   market: [
     ['Intuitive develops da Vinci surgical robotics systems', 'אינטואיטיב מפתחת מערכות כירורגיות רובוטיות מסדרת דה וינצ׳י', 'Intuitive', 'https://www.intuitive.com/en-us/products-and-services/da-vinci', 'קליפורניה', 'רובוטיקה רפואית'],
@@ -39,6 +45,8 @@ const fixtures: Record<BuiltIn, Item[]> = {
     ['Microsoft completes acquisition of GitHub', 'מיקרוסופט משלימה את רכישת גיטהאב', 'Microsoft', 'https://blogs.microsoft.com/blog/2018/10/26/microsoft-completes-github-acquisition/', 'קליפורניה', 'רכישות'],
     ['Microsoft announces plans to acquire Activision Blizzard', 'מיקרוסופט מודיעה על כוונתה לרכוש את אקטיוויז׳ן בליזארד', 'Microsoft', 'https://news.microsoft.com/source/2022/01/18/microsoft-to-acquire-activision-blizzard-to-bring-the-joy-and-community-of-gaming-to-everyone-across-every-device/', 'קליפורניה', 'רכישות', 'משחקים'],
     ['Apple acquires music recognition company Shazam', 'אפל רוכשת את שאזאם, שירות זיהוי השירים', 'Apple', 'https://www.apple.com/newsroom/2018/09/apple-acquires-shazam-offering-more-ways-to-discover-and-enjoy-music/', 'קליפורניה', 'רכישות', 'מוזיקה'],
+    ['Apple to acquire Beats Music and Beats Electronics', 'אפל רוכשת את ביטס, יצרנית אוזניות ושירות הזרמת מוזיקה', 'Apple', 'https://www.apple.com/newsroom/2014/05/28Apple-to-Acquire-Beats-Music-Beats-Electronics/', 'קליפורניה', 'רכישות', 'מוזיקה'],
+    ['Apple to acquire most of Intel smartphone modem business', 'אפל רוכשת את רוב פעילות מודמי הסלולר של אינטל', 'Apple', 'https://www.apple.com/newsroom/2019/07/apple-to-acquire-the-majority-of-intels-smartphone-modem-business/', 'קליפורניה', 'רכישות', 'שבבים'],
   ],
   policy: [
     ['New York governor signs RAISE Act', 'ניו יורק מסדירה את חובות הבטיחות של מפתחי מודלי AI', 'New York State', 'https://www.nysenate.gov/legislation/bills/2025/S6953/amendment/B', 'מדינת ניו יורק', 'רגולציה', 'מוצרי AI'],
@@ -48,6 +56,8 @@ const fixtures: Record<BuiltIn, Item[]> = {
     ['California SB 53 frontier AI transparency act', 'קליפורניה קובעת חובות שקיפות למפתחי מודלי בינה מלאכותית מתקדמים', 'Governor of California', 'https://www.gov.ca.gov/2025/09/29/governor-newsom-signs-sb-53-advancing-californias-world-leading-artificial-intelligence-industry/', 'קליפורניה', 'בטיחות AI', 'רגולציה'],
     ['New York SAFE for Kids Act S7694', 'ניו יורק מגבילה פידים אלגוריתמיים לקטינים ברשתות חברתיות', 'New York State', 'https://www.nysenate.gov/legislation/bills/2023/S7694/amendment/A', 'מדינת ניו יורק', 'רשתות חברתיות', 'חקיקה מקומית'],
     ['New York Digital Fair Repair Act S4104', 'ניו יורק מחייבת יצרני אלקטרוניקה להנגיש חלקים ומידע לתיקון', 'New York State', 'https://www.nysenate.gov/legislation/bills/2021/S4104/amendment/A', 'מדינת ניו יורק', 'זכות לתקן', 'חקיקה מקומית'],
+    ['New York Child Data Protection Act S7695', 'ניו יורק מגבילה איסוף ועיבוד נתונים אישיים של ילדים ברשת', 'New York State', 'https://www.nysenate.gov/legislation/bills/2023/S7695/amendment/B', 'מדינת ניו יורק', 'פרטיות', 'חקיקה מקומית'],
+    ['California Privacy Protection Agency rulemaking', 'רשות הפרטיות של קליפורניה מפרסמת את תקנות הגנת המידע', 'California Privacy Protection Agency', 'https://cppa.ca.gov/regulations/', 'קליפורניה', 'פרטיות', 'רגולציה'],
   ],
 };
 
