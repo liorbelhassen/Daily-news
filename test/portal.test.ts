@@ -369,6 +369,47 @@ test('legacy articles need a confirmed publication date before they can appear o
   }
 });
 
+test('verified coverage from another publisher replaces a legacy copy and keeps its exposure history', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'daily-news-coverage-'));
+  const file = join(dir, 'edition.json');
+  const db = new Store(':memory:');
+  try {
+    const legacy = { ...story('California adopts statewide privacy rules', 'policy', ['רגולציה']), publicationDateVerified: undefined };
+    const coverage = story('California adopts new statewide privacy rules', 'policy', ['רגולציה'], 'Second Publisher');
+    db.saveEdition(edition, [legacy]);
+    const returning = randomUUID();
+    assert.equal(db.board(returning, 'demo', 'idle').slots[0]?.articleId, legacy.id);
+
+    writeFileSync(file, JSON.stringify([coverage]));
+    await createRefresher(db, { EDITION_FILE: file }).run();
+    assert.deepEqual(db.catalog().map(({ id, eventId }) => [id, eventId]), [[coverage.id, legacy.eventId]]);
+    assert.equal(db.board(randomUUID(), 'live', 'idle').slots[0]?.articleId, coverage.id);
+    assert.deepEqual(db.board(returning, 'live', 'idle').slots, []);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('duplicate detection compares incoming headlines with corrected publication dates', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'daily-news-corrected-date-'));
+  const file = join(dir, 'edition.json');
+  const db = new Store(':memory:');
+  try {
+    const original = story('California publishes statewide safety rules for advanced models', 'policy', ['רגולציה']);
+    const duplicate = story('California publishes safety rules for advanced AI models', 'policy', ['רגולציה'], 'Second Publisher');
+    const legacy = { ...original, publicationDateVerified: undefined, publishedAt: new Date(now - 6 * 86400_000).toISOString() };
+    db.saveEdition(edition, [legacy]);
+    writeFileSync(file, JSON.stringify([duplicate, original]));
+    await createRefresher(db, { EDITION_FILE: file }).run();
+    assert.deepEqual(db.catalog().map(({ id, publishedAt }) => [id, publishedAt]), [[original.id, original.publishedAt]]);
+    assert.equal(db.board(randomUUID(), 'live', 'idle').slots.length, 1);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a live reader loses expired cards without waiting for a new edition and cannot vote them back in', t => {
   let clock = now;
   t.mock.method(Date, 'now', () => clock);

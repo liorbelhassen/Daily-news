@@ -61,7 +61,13 @@ export class Store {
   saveEdition(edition: Edition, articles: Article[], updates: Article[] = []) {
     return this.transaction(() => {
       let changes = 0;
-      const upsert = this.db.prepare('INSERT OR IGNORE INTO articles (id, event_id, data) VALUES (?, ?, ?)');
+      const upsert = this.db.prepare(`
+        INSERT INTO articles (id, event_id, data) VALUES (?, ?, ?)
+        ON CONFLICT(id) DO NOTHING
+        ON CONFLICT(event_id) DO UPDATE SET id = excluded.id, data = excluded.data
+        WHERE json_extract(articles.data, '$.publicationDateVerified') IS NOT 1
+          AND json_extract(excluded.data, '$.publicationDateVerified') IS 1
+      `);
       const update = this.db.prepare('UPDATE articles SET data = ? WHERE id = ?');
       for (const article of articles) changes += Number(upsert.run(article.id, article.eventId, JSON.stringify(article)).changes);
       for (const article of updates) changes += Number(update.run(JSON.stringify(article), article.id).changes);
