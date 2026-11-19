@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { categories as builtIns, type Board, type Category } from '../shared/model.js';
 import './styles.css';
 
-type Command = 'vote' | 'undo' | 'reset' | 'category';
+type Command = 'vote' | 'undo' | 'reset' | 'category' | 'refresh';
 type CardSlot = Board['slots'][number];
 const defaultStatus = '+ עוד בנושא הזה · − פחות בנושא הזה';
 const dateFormat = new Intl.DateTimeFormat('he-IL', {
@@ -110,6 +110,7 @@ function App() {
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [refreshRequested, setRefreshRequested] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [name, setName] = useState('');
   const [formError, setFormError] = useState('');
@@ -118,8 +119,10 @@ function App() {
   const lock = useRef(false);
   const generation = useRef(0);
   const hasBoard = useRef(false);
+  const collecting = board?.refresh === 'running';
+  const refreshing = collecting || pending === 'refresh';
 
-  async function refresh() {
+  async function loadBoard() {
     if (lock.current) return;
     const call = ++generation.current;
     try {
@@ -134,13 +137,13 @@ function App() {
   }
 
   useEffect(() => {
-    void refresh();
-    const timer = window.setInterval(refresh, 20_000);
+    void loadBoard();
+    const timer = window.setInterval(loadBoard, collecting ? 3_000 : 20_000);
     return () => {
       window.clearInterval(timer);
       generation.current++;
     };
-  }, []);
+  }, [collecting]);
 
   useEffect(() => {
     if (formOpen) formInput.current?.focus();
@@ -166,6 +169,13 @@ function App() {
       lock.current = false;
       setPending(null);
     }
+  }
+
+  function refreshNews() {
+    if (lock.current || refreshing) return;
+    setNotice('');
+    setRefreshRequested(false);
+    void mutate('refresh', {}, 'refresh', () => setRefreshRequested(true));
   }
 
   function vote(slot: CardSlot, direction: 1 | -1) {
@@ -219,11 +229,17 @@ function App() {
   return (
     <main className="board">
       <header className="masthead">
-        <div>
-          <p className="kicker"><span aria-hidden="true">✦</span> מהדורת טכנולוגיה אישית</p>
+        <p className="kicker"><span aria-hidden="true">✦</span> מהדורת טכנולוגיה אישית</p>
+        <div className="brand">
           <h1>כותרות הטק<span aria-hidden="true">.</span></h1>
           <p className="coverage">קליפורניה · מדינת ניו יורק · סין</p>
         </div>
+        {board?.mode === 'live' && (
+          <button className="refresh-news" type="button" onClick={refreshNews}
+            aria-disabled={pending !== null || refreshing}>
+            <span aria-hidden="true">↻</span> {refreshing ? 'מרעננים…' : 'רענון חדשות'}
+          </button>
+        )}
         {board && <div className="edition">
           {board.mode === 'demo' && <span className="demo-label"><span aria-hidden="true" /> נתוני דוגמה</span>}
           {board.edition && (
@@ -280,12 +296,15 @@ function App() {
             }}>איפוס העדפות</button>
           </div>
         </div>
-        <div className="feedback" role="status" aria-live="polite">{notice || defaultStatus}</div>
+        <div className="feedback" role="status" aria-live="polite">
+          {notice || (refreshing ? 'בודקים את מקורות החדשות…' :
+            refreshRequested && board?.refresh === 'idle' ? 'בדיקת מקורות החדשות הסתיימה.' : defaultStatus)}
+        </div>
 
         {board?.refresh === 'partial' && <p className="refresh-message">חלק מהמקורות לא התעדכנו. הכותרות שנאספו עדיין זמינות.</p>}
-        {board?.refresh === 'error' && <p className="refresh-message">עדכון המקורות לא הושלם. האיסוף יתחדש במועד המהדורה הבא.</p>}
+        {board?.refresh === 'error' && <p className="refresh-message">עדכון המקורות לא הושלם. אפשר לנסות שוב עם ״רענון חדשות״.</p>}
         {error ? <div className="board-state" role="alert">
-          <p>{error}</p><button type="button" onClick={() => void refresh()}>ניסיון נוסף</button>
+          <p>{error}</p><button type="button" onClick={() => void loadBoard()}>ניסיון נוסף</button>
         </div> : !board || (board.refresh === 'running' && !board.edition) ? (
           <div className="board-state" role="status">טוענים כותרות…</div>
         ) : visible.length ? (
@@ -298,8 +317,7 @@ function App() {
         ) : (
           <div className="board-state">
             <p>עדיין אין ידיעות זמינות בקטגוריה הזו</p>
-            <span>ידיעות מתאימות יופיעו אחרי העדכון הבא.</span>
-            {board.refresh === 'error' && <button type="button" onClick={() => void refresh()}>טעינה מחדש</button>}
+            <span>{refreshing ? 'מחפשים ידיעות מתאימות במקורות…' : 'ידיעות מתאימות יופיעו כאן כשיימצאו.'}</span>
           </div>
         )}
       </section>

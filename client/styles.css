@@ -29,15 +29,17 @@ p { margin: 0; }
   border-radius: 23px;
 }
 .masthead {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "kicker refresh" "brand edition";
   align-items: end;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 20px;
+  column-gap: 20px;
   padding-bottom: 25px;
   border-bottom: 1px solid var(--line);
 }
 .kicker {
+  grid-area: kicker;
+  align-self: center;
   color: var(--accent);
   font-size: .875rem;
   font-weight: 700;
@@ -47,6 +49,7 @@ p { margin: 0; }
   gap: 7px;
 }
 .kicker span { font-size: 1rem; }
+.brand { grid-area: brand; }
 h1 {
   margin: 8px 0 9px;
   font-size: clamp(3rem, 6vw, 5.1rem);
@@ -55,7 +58,27 @@ h1 {
 }
 h1 span { color: #e9ca77; padding-inline-start: .035em; }
 .coverage { color: var(--muted); font-size: .96rem; }
-.edition { display: grid; gap: 10px; justify-items: end; text-align: end; align-self: end; }
+.refresh-news {
+  grid-area: refresh;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  min-width: 120px;
+  padding: 7px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  background: var(--accent);
+  color: #152822;
+  font-size: .88rem;
+  font-weight: 700;
+}
+.refresh-news span { font-size: 1.2rem; line-height: 1; }
+.refresh-news:not([aria-disabled="true"]):hover { background: #dcf7e7; }
+.refresh-news[aria-disabled="true"] { background: transparent; color: var(--muted); border-color: var(--line); }
+.edition { grid-area: edition; display: grid; gap: 10px; justify-items: end; text-align: end; }
 .demo-label {
   display: inline-flex;
   gap: 7px;
@@ -298,7 +321,11 @@ h2 { margin: 0; font-size: 1.25rem; overflow-wrap: anywhere; }
 }
 @media (max-width: 620px) {
   .board { width: calc(100% - 24px); margin: 12px auto; padding: 19px 14px 18px; border-radius: 16px; }
-  .masthead { padding-bottom: 17px; gap: 13px; }
+  .masthead {
+    grid-template-areas: "kicker refresh" "brand brand" "edition edition";
+    padding-bottom: 17px;
+    gap: 7px 10px;
+  }
   h1 { font-size: clamp(2.6rem, 11vw, 4rem); }
   .edition { justify-items: start; text-align: start; gap: 5px; }
   .edition-time { display: flex; align-items: baseline; flex-wrap: wrap; gap: 5px; }
