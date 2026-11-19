@@ -27,8 +27,8 @@ export const newReader = (): Reader => ({
 
 type Edition = { id: string; at: string };
 const DAY = 86_400_000;
-const HOME_LIMIT = 20;
-const LAYOUT_VERSION = 1;
+const CATEGORY_SIZE = 6;
+export const LAYOUT_VERSION = 2;
 
 export function categoryIncludes(id: string, article: Article, reader: Reader) {
   const personal = reader.custom.find(category => category.id === id);
@@ -103,78 +103,48 @@ function show(reader: Reader, slot: Slot, article: Article) {
   remember(reader, article);
 }
 
-function newSlot(reader: Reader, categoryId: string, article: Article, filteredOnly = false) {
-  const slot: Slot = { id: randomUUID(), categoryId, discovery: categoryId === 'discover', articleId: null, filteredOnly };
+function newSlot(reader: Reader, categoryId: string, article: Article) {
+  const slot: Slot = { id: randomUUID(), categoryId, discovery: categoryId === 'discover', articleId: null };
   show(reader, slot, article);
   return slot;
 }
 
-function openStories(reader: Reader, catalog: Article[], current?: Article) {
-  const byId = new Map(catalog.map(article => [article.id, article]));
-  const shown = new Set(reader.slots.map(slot => byId.get(slot.articleId ?? '')?.eventId));
-  if (current) shown.add(current.eventId);
-  return catalog.filter(article => !shown.has(article.eventId));
-}
-
 export function fillEdition(
-  reader: Reader, catalog: Article[], edition: Edition, demo: boolean, random = Math.random, fresh = catalog,
+  reader: Reader, catalog: Article[], edition: Edition, random = Math.random, fresh = catalog,
 ) {
   if (reader.editionId === edition.id && reader.layoutVersion === LAYOUT_VERSION) return;
   if (!catalog.length) return;
   reader.layoutVersion = LAYOUT_VERSION;
   reader.editionId = edition.id;
   reader.lastVote = null;
+  reader.slots = [];
   const now = Date.parse(edition.at);
-  const freshIds = new Set(fresh.map(article => article.id));
-  const discovery = catalog.filter(article => article.category === 'discover');
-  const limit = demo ? 4 : discovery.length ? 16 : HOME_LIMIT;
-  const normalGroups = categories.filter(category => category.id !== 'discover').map(category => ({
-    id: category.id, pool: catalog.filter(article => article.category === category.id), added: 0,
-  }));
-  const selected: Slot[] = [];
-  while (selected.length < limit) {
-    const before = selected.length;
-    for (const group of normalGroups) {
-      // Leave a standby story in each section when the catalog can support one.
-      if (selected.length >= limit || group.pool.length <= (group.added ? 1 : 0)) continue;
-      const article = bestNormal(reader, candidatePool(reader, group.pool, freshIds), now)!;
-      selected.push(newSlot(reader, group.id, article));
-      group.pool.splice(group.pool.indexOf(article), 1);
-      group.added++;
-    }
-    if (selected.length === before) break;
+  for (const category of [...categories, ...reader.custom]) {
+    populateCategory(reader, category.id, catalog, now, fresh, random);
   }
-  const desiredDiscovery = Math.max(1, Math.round(selected.length / 4));
-  const discoveryCount = Math.min(discovery.length === 1 ? 1 : Math.max(0, discovery.length - 1), desiredDiscovery);
-  for (let i = 0; i < discoveryCount; i++) {
-    const article = pickDiscovery(reader, candidatePool(reader, discovery, freshIds), now, random)!;
-    selected.splice(i * 5, 0, newSlot(reader, 'discover', article));
-    discovery.splice(discovery.indexOf(article), 1);
-  }
-  reader.slots = selected;
-  for (const category of reader.custom) populateCategory(reader, category.id, catalog, now, fresh);
 }
 
-export function populateCategory(reader: Reader, categoryId: string, catalog: Article[], now: number, fresh = catalog) {
-  if (reader.slots.some(slot => slot.categoryId === categoryId && slot.articleId)) return;
-  const articlesById = new Map(catalog.map(article => [article.id, article]));
-  const existing = reader.slots.find(slot => {
-    const article = articlesById.get(slot.articleId ?? '');
-    return article && categoryIncludes(categoryId, article, reader);
-  });
-  if (existing) {
-    existing.linkedCategoryIds = [...new Set([...(existing.linkedCategoryIds ?? []), categoryId])];
-    return;
+export function populateCategory(
+  reader: Reader, categoryId: string, catalog: Article[], now: number, fresh = catalog, random = Math.random,
+) {
+  const available = catalog.filter(article => categoryIncludes(categoryId, article, reader));
+  const freshIds = new Set(fresh.map(article => article.id));
+  // Keep an alternate in smaller pools when possible, while showing all six if the page can be filled exactly.
+  const reserve = available.length > 1 && available.length < CATEGORY_SIZE ? 1 : 0;
+  const limit = Math.min(CATEGORY_SIZE, available.length - reserve);
+  for (let i = 0; i < limit; i++) {
+    const pool = candidatePool(reader, available, freshIds);
+    const article = categoryId === 'discover'
+      ? pickDiscovery(reader, pool, now, random)!
+      : bestNormal(reader, pool, now)!;
+    reader.slots.push(newSlot(reader, categoryId, article));
+    available.splice(available.indexOf(article), 1);
   }
-  const available = openStories(reader, catalog).filter(item => categoryIncludes(categoryId, item, reader));
-  const candidate = bestNormal(reader, candidatePool(reader, available, new Set(fresh.map(article => article.id))), now);
-  if (!candidate) return;
-  reader.slots.push(newSlot(reader, categoryId, candidate, true));
 }
 
 export function applyVote(
   reader: Reader, slotId: string, expectedArticleId: string, vote: 1 | -1,
-  stored: Article[], fresh: Article[], now: number, random = Math.random, fromCategoryId?: string,
+  stored: Article[], fresh: Article[], now: number, random = Math.random,
 ) {
   const slot = reader.slots.find(item => item.id === slotId && item.articleId === expectedArticleId);
   const current = stored.find(article => article.id === expectedArticleId);
@@ -184,34 +154,13 @@ export function applyVote(
   reader.lastVote = { slot: { ...slot }, topic, previousWeight };
   reader.weights[topic] = previousWeight + vote;
 
-  const available = openStories(reader, stored, current).filter(article => (article.category === 'discover') === slot.discovery);
-  const personal = reader.custom.find(category => category.id === fromCategoryId &&
-    (slot.categoryId === category.id || slot.linkedCategoryIds?.includes(category.id) ||
-      slot.previousCategoryIds?.includes(category.id)));
-  const within = available.filter(article => categoryIncludes(slot.categoryId, article, reader));
-  const related = personal ? (slot.filteredOnly ? available : within)
-    .filter(article => categoryIncludes(personal.id, article, reader)) : within;
-  const canSwitchSection = !slot.discovery && (slot.filteredOnly || reader.slots.some(other =>
-    other !== slot && !other.filteredOnly && other.categoryId === slot.categoryId && other.articleId));
-  const choices = related.length ? related : within.length ? within : canSwitchSection ? available : [];
+  const shown = new Set(reader.slots.filter(item => item.categoryId === slot.categoryId).map(item => item.articleId));
+  const choices = stored.filter(article => !shown.has(article.id) && categoryIncludes(slot.categoryId, article, reader));
   const different = vote === -1 ? choices.filter(article => article.topics[0] !== topic) : [];
   const pool = candidatePool(reader, different.length ? different : choices, new Set(fresh.map(article => article.id)));
   const similar = vote === 1 ? current : undefined;
   const replacement = slot.discovery ? pickDiscovery(reader, pool, now, random, similar) : bestNormal(reader, pool, now, similar);
-  if (!replacement) return true;
-
-  if (slot.filteredOnly && personal && related.includes(replacement)) {
-    slot.categoryId = personal.id;
-  } else if (!within.includes(replacement)) {
-    slot.previousCategoryIds = [...new Set([...(slot.previousCategoryIds ?? []), slot.categoryId])];
-    slot.categoryId = replacement.category;
-  }
-  if (personal && !categoryIncludes(personal.id, replacement, reader)) {
-    slot.previousCategoryIds = [...new Set([...(slot.previousCategoryIds ?? []), personal.id])];
-  }
-  slot.linkedCategoryIds = reader.custom.filter(category =>
-    category.id !== slot.categoryId && categoryIncludes(category.id, replacement, reader)).map(category => category.id);
-  show(reader, slot, replacement);
+  if (replacement) show(reader, slot, replacement);
   return true;
 }
 
@@ -220,15 +169,6 @@ export function undoVote(reader: Reader) {
   if (!previous) return false;
   const slot = reader.slots.find(item => item.id === previous.slot.id);
   if (!slot) return false;
-  const matchingFilter = reader.slots.find(item => item.filteredOnly && item.id !== slot.id &&
-    item.articleId === previous.slot.articleId);
-  if (matchingFilter) {
-    // A category created after the vote may have picked up the archived story.
-    previous.slot.linkedCategoryIds = [...new Set([
-      ...(previous.slot.linkedCategoryIds ?? []), matchingFilter.categoryId, ...(matchingFilter.linkedCategoryIds ?? []),
-    ])];
-    reader.slots.splice(reader.slots.indexOf(matchingFilter), 1);
-  }
   reader.slots[reader.slots.indexOf(slot)] = previous.slot;
   if (previous.previousWeight) reader.weights[previous.topic] = previous.previousWeight;
   else delete reader.weights[previous.topic];

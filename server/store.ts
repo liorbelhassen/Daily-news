@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { categories, type Article, type Board } from '../shared/model.js';
-import { fillEdition, newReader, type Reader } from './board.js';
+import { fillEdition, LAYOUT_VERSION, newReader, type Reader } from './board.js';
 import { isFresh } from './ingest.js';
 
 type Edition = NonNullable<Board['edition']>;
@@ -88,8 +88,8 @@ export class Store {
       const edition = this.edition();
       const now = Date.now();
       const fresh = mode === 'demo' ? catalog : catalog.filter(article => isFresh(article, now));
-      if (edition && (!operationId || !reader.editionId)) {
-        fillEdition(reader, catalog, edition, mode === 'demo', mode === 'demo' ? () => 0 : Math.random, fresh);
+      if (edition && (!operationId || !reader.editionId || reader.layoutVersion !== LAYOUT_VERSION)) {
+        fillEdition(reader, catalog, edition, mode === 'demo' ? () => 0 : Math.random, fresh);
       }
       if (operationId && change && !this.db.prepare('SELECT 1 FROM requests WHERE reader_id = ? AND id = ?').get(id, operationId)) {
         change(reader, catalog, fresh, now);

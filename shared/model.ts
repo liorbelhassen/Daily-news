@@ -29,9 +29,6 @@ export type Article = {
 export type Slot = {
   id: string;
   discovery: boolean;
-  filteredOnly?: boolean;
-  previousCategoryIds?: string[];
-  linkedCategoryIds?: string[];
   categoryId: string;
   articleId: string | null;
 };

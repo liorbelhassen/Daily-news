@@ -5,7 +5,6 @@ import './styles.css';
 
 type Command = 'vote' | 'undo' | 'reset' | 'category';
 type CardSlot = Board['slots'][number];
-const ALL = 'all';
 const defaultStatus = '+ עוד בנושא הזה · − פחות בנושא הזה';
 const dateFormat = new Intl.DateTimeFormat('he-IL', {
   timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
@@ -107,7 +106,7 @@ function Card({ slot, category, featured, pending, locked, live, vote }: {
 
 function App() {
   const [board, setBoard] = useState<Board | null>(null);
-  const [filter, setFilter] = useState(ALL);
+  const [filter, setFilter] = useState<string>(builtIns[0].id);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -174,7 +173,6 @@ function App() {
     setNotice('מחפשים כתבה נוספת…');
     void mutate('vote', {
       slotId: slot.id, articleId: slot.article.id, vote: direction,
-      categoryId: filter !== ALL ? filter : undefined,
     }, slot.id, next => {
       const replacement = next.slots.find(item => item.id === slot.id)?.article;
       setNotice(replacement?.id === slot.article?.id ? 'הכתבה נשארה במשבצת עד שתהיה חלופה זמינה.' :
@@ -207,13 +205,10 @@ function App() {
   }
 
   const allCategories = board?.categories ?? builtIns;
-  const byId = new Map(allCategories.map(category => [category.id, category]));
-  const visible = board?.slots.filter(slot =>
-    filter === ALL ? !slot.filteredOnly : slot.categoryId === filter ||
-      slot.linkedCategoryIds?.includes(filter) || slot.previousCategoryIds?.includes(filter)) ?? [];
+  const currentCategory = allCategories.find(category => category.id === filter) ?? builtIns[0];
+  const visible = board?.slots.filter(slot => slot.categoryId === currentCategory.id) ?? [];
   // The feature belongs to the discovery slot, even while its article is being replaced.
-  const featuredId = filter === ALL || filter === 'discover' ? visible.find(slot => slot.discovery)?.id : undefined;
-  const currentLabel = filter === ALL ? 'כל הכותרות' : byId.get(filter)?.label ?? 'כל הכותרות';
+  const featuredId = currentCategory.id === 'discover' ? visible[0]?.id : undefined;
 
   function setCategory(id: string) {
     if (lock.current) return;
@@ -241,10 +236,9 @@ function App() {
       </header>
 
       <nav className="filters" aria-label="קטגוריות">
-        <button id="filter-all" type="button" aria-pressed={filter === ALL} onClick={() => setCategory(ALL)}>הכול</button>
         {allCategories.map(category => (
           <button id={`filter-${category.id}`} key={category.id} type="button" className={`theme-${category.color}`}
-            aria-pressed={filter === category.id} onClick={() => setCategory(category.id)}>
+            aria-pressed={currentCategory.id === category.id} onClick={() => setCategory(category.id)}>
             <span className="filter-dot" aria-hidden="true" /><bdi>{category.label}</bdi>
           </button>
         ))}
@@ -274,7 +268,7 @@ function App() {
 
       <section aria-labelledby="feed-heading">
         <div className="feed-heading">
-          <h2 id="feed-heading">{currentLabel}</h2>
+          <h2 id="feed-heading">{currentCategory.label}</h2>
           <div className="preferences">
             <button type="button" aria-disabled={!board?.canUndo || pending !== null} onClick={() => {
               if (board?.canUndo) void mutate('undo', {}, 'undo', () => { setNotice('ההצבעה האחרונה בוטלה.'); });
@@ -297,13 +291,13 @@ function App() {
         ) : visible.length ? (
           <div className="stories">
             {visible.map(slot => <Card key={slot.id} slot={slot}
-              category={byId.get(slot.linkedCategoryIds?.includes(filter) ? filter : slot.categoryId)!}
+              category={currentCategory}
               featured={slot.id === featuredId} pending={pending === slot.id} locked={pending !== null}
               live={board.mode === 'live'} vote={vote} />)}
           </div>
         ) : (
           <div className="board-state">
-            <p>{filter === ALL ? 'אין כרגע כותרות זמינות' : 'עדיין אין ידיעות זמינות בקטגוריה הזו'}</p>
+            <p>עדיין אין ידיעות זמינות בקטגוריה הזו</p>
             <span>ידיעות מתאימות יופיעו אחרי העדכון הבא.</span>
             {board.refresh === 'error' && <button type="button" onClick={() => void refresh()}>טעינה מחדש</button>}
           </div>

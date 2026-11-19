@@ -14,9 +14,12 @@ if (mode !== 'demo' && mode !== 'live') throw new Error('NEWS_MODE must be demo 
 const store = new Store(process.env.DATABASE_PATH ?? `data/daily-news-${mode}.sqlite`);
 const refresher = createRefresher(store);
 const data = { mode, refresh: refresher.status } as const;
-if (mode === 'demo' && !store.edition()) {
-  const now = Date.now();
-  store.saveEdition({ id: 'demo-v1', at: new Date(now).toISOString() }, demoArticles(now));
+if (mode === 'demo') {
+  const edition = store.edition();
+  if (!edition || edition.id === 'demo-v1') {
+    const now = Date.now();
+    store.saveEdition({ id: 'demo-v2', at: new Date(now).toISOString() }, demoArticles(now));
+  }
 }
 const scheduler = mode === 'live' ? cron.schedule(EDITION_SCHEDULE, () => refresher.run(), {
   timezone: TIME_ZONE, noOverlap: true,
@@ -71,15 +74,14 @@ app.post('/api/board/:command', (request, response) => {
   const invalid = (error: string) => { response.status(400).json({ error }); };
   switch (request.params.command) {
     case 'vote': {
-      const { slotId, articleId, vote, categoryId } = input;
+      const { slotId, articleId, vote } = input;
       if (typeof slotId !== 'string' || !uuid.test(slotId) || typeof articleId !== 'string' ||
-        !/^[a-f0-9]{24}$/.test(articleId) || (vote !== 1 && vote !== -1) ||
-        (categoryId !== undefined && (typeof categoryId !== 'string' || categoryId.length > 70))) {
+        !/^[a-f0-9]{24}$/.test(articleId) || (vote !== 1 && vote !== -1)) {
         invalid('ההצבעה אינה תקינה.');
         return;
       }
       response.json(save((reader, catalog, fresh, now) => {
-        applyVote(reader, slotId, articleId, vote, catalog, fresh, now, Math.random, categoryId);
+        applyVote(reader, slotId, articleId, vote, catalog, fresh, now);
       }));
       return;
     }
