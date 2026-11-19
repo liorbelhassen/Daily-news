@@ -107,7 +107,10 @@ export class Store {
       `).run(id, after);
       const byId = new Map(catalog.map(article => [article.id, article]));
       return {
-        slots: reader.slots.map(slot => ({ ...slot, article: byId.get(slot.articleId ?? '') ?? null })),
+        slots: reader.slots.flatMap(slot => {
+          const article = byId.get(slot.articleId ?? '');
+          return article ? [{ ...slot, article }] : [];
+        }),
         categories: [...categories, ...reader.custom],
         canUndo: reader.lastVote !== null,
         hasPreferences: Object.values(reader.weights).some(weight => weight !== 0) || reader.lastVote !== null,

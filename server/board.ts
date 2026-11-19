@@ -141,16 +141,15 @@ export function populateCategory(
   };
 
   const current: Slot[] = [];
-  const removed = new Set<Slot>();
   let replaced = 0;
   for (const slot of reader.slots.filter(slot => slot.categoryId === categoryId)) {
     if (eligibleIds.has(slot.articleId ?? '')) current.push(slot);
     else if (available.length) {
       show(reader, slot, take());
       replaced++;
-    } else removed.add(slot);
+    }
   }
-  if (removed.size) reader.slots = reader.slots.filter(slot => !removed.has(slot));
+  // Keep an unavailable slot in the saved layout so undo can still restore a recent article.
 
   // Fill gaps before refreshing existing cards, and leave a candidate for voting when possible.
   const filled = current.length + replaced;

@@ -388,6 +388,32 @@ test('a live reader loses expired cards without waiting for a new edition and ca
   }
 });
 
+test('undo restores a recent article after its voted-in replacement has expired', t => {
+  let clock = now;
+  t.mock.method(Date, 'now', () => clock);
+  const db = new Store(':memory:');
+  try {
+    const user = randomUUID();
+    const original = story('new chip', 'chips', ['מעבדים']);
+    const replacement = { ...story('older chip', 'chips', ['מעבדים']), publishedAt: new Date(now - WEEK).toISOString() };
+    db.saveEdition(edition, [original, replacement]);
+    const [slot] = db.board(user, 'live', 'idle').slots;
+    assert.equal(slot.articleId, original.id);
+    const voted = db.board(user, 'live', 'idle', randomUUID(), (reader, catalog) => {
+      assert.ok(applyVote(reader, slot.id, original.id, 1, catalog, clock));
+    });
+    assert.equal(voted.slots[0]?.articleId, replacement.id);
+    clock++;
+    assert.deepEqual(db.board(user, 'live', 'idle').slots, []);
+    const undone = db.board(user, 'live', 'idle', randomUUID(), (reader, catalog) => {
+      assert.ok(undoVote(reader, catalog));
+    });
+    assert.deepEqual(undone.slots.map(({ id, articleId }) => [id, articleId]), [[slot.id, original.id]]);
+  } finally {
+    db.close();
+  }
+});
+
 test('a vote arriving during a scheduled refresh finishes in the still-visible edition', () => {
   const db = new Store(':memory:');
   try {
