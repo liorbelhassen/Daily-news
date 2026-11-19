@@ -14,6 +14,8 @@ if (mode !== 'demo' && mode !== 'live') throw new Error('NEWS_MODE must be demo 
 const store = new Store(process.env.DATABASE_PATH ?? `data/daily-news-${mode}.sqlite`);
 const refresher = createRefresher(store);
 const data = { mode, refresh: refresher.status } as const;
+const MANUAL_REFRESH_COOLDOWN_MS = 60_000;
+let nextManualRefreshAt = 0;
 if (mode === 'demo') {
   const edition = store.edition();
   if (!edition || edition.id === 'demo-v1' || edition.id === 'demo-v2') {
@@ -73,14 +75,28 @@ app.post('/api/board/:command', (request, response) => {
     store.board(id, data.mode, data.refresh(), requestId, change);
   const invalid = (error: string) => { response.status(400).json({ error }); };
   switch (request.params.command) {
-    case 'refresh':
+    case 'refresh': {
       if (data.mode !== 'live') {
         invalid('רענון מקורות חדשות זמין במצב חי בלבד.');
         return;
       }
-      void refresher.run();
+      if (data.refresh() !== 'running') {
+        const remaining = nextManualRefreshAt - Date.now();
+        if (remaining > 0) {
+          const seconds = Math.ceil(remaining / 1000);
+          const wait = seconds === 1 ? 'שנייה' : `${seconds} שניות`;
+          response.set('Retry-After', String(seconds)).status(429).json({
+            error: `המקורות נבדקו לאחרונה. אפשר לרענן שוב בעוד ${wait}.`,
+          });
+          return;
+        }
+        void refresher.run().then(() => {
+          nextManualRefreshAt = Date.now() + MANUAL_REFRESH_COOLDOWN_MS;
+        });
+      }
       response.status(202).json(store.board(id, data.mode, data.refresh()));
       return;
+    }
     case 'vote': {
       const { slotId, articleId, vote } = input;
       if (typeof slotId !== 'string' || !uuid.test(slotId) || typeof articleId !== 'string' ||
