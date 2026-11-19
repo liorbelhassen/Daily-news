@@ -21,6 +21,8 @@ export type Article = {
   source: string;
   publishedAt: string;
   publicationDateVerified?: true;
+  alternateIds?: string[];
+  alternateEventIds?: string[];
   eventId: string;
   eventTerms?: string[];
   heUrl?: string;

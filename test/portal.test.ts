@@ -385,6 +385,20 @@ test('verified coverage from another publisher replaces a legacy copy and keeps 
     assert.deepEqual(db.catalog().map(({ id, eventId }) => [id, eventId]), [[coverage.id, legacy.eventId]]);
     assert.equal(db.board(randomUUID(), 'live', 'idle').slots[0]?.articleId, coverage.id);
     assert.deepEqual(db.board(returning, 'live', 'idle').slots, []);
+
+    // One feed reuses the second publisher's event ID. Another uses the old URL with a different headline.
+    const sameEvent = {
+      ...story('Consumer advocates welcome new protections', 'policy', ['רגולציה']),
+      eventId: coverage.eventId,
+    };
+    const oldUrl = {
+      ...story('What the state changes mean for consumers', 'policy', ['רגולציה']),
+      url: legacy.url,
+    };
+    writeFileSync(file, JSON.stringify([sameEvent, oldUrl]));
+    await createRefresher(db, { EDITION_FILE: file }).run();
+    assert.deepEqual(db.catalog().map(article => article.id), [coverage.id]);
+    assert.deepEqual(db.board(returning, 'live', 'idle').slots, []);
   } finally {
     db.close();
     rmSync(dir, { recursive: true, force: true });

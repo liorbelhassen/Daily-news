@@ -76,14 +76,18 @@ export function createRefresher(store: Store, env: NodeJS.ProcessEnv = process.e
     }
     if (translated.length < pending.length && failures === 0) report('headline translation',
       new Error('Configure TRANSLATION_BASE_URL and TRANSLATION_MODEL or provide verified Hebrew headlines.'));
-    // A new source can supply verified coverage for a legacy event. Reuse its history key.
-    const legacyEvents = new Set([...legacy].map(article => article.eventId));
+    // Retain both publishers' identifiers when verified coverage takes over a legacy event.
+    const unconfirmed = [...legacy];
+    const legacyEvents = new Map(unconfirmed.map(article => [article.eventId, article]));
     const articles = [...importedNew, ...translated].map(article => {
-      if (legacyEvents.has(article.eventId)) return article;
-      for (const other of legacy) {
-        if (sameStory(article, other)) return { ...article, eventId: other.eventId };
-      }
-      return article;
+      const previous = legacyEvents.get(article.eventId) ?? unconfirmed.find(other => sameStory(article, other));
+      if (!previous) return article;
+      return {
+        ...article,
+        eventId: previous.eventId,
+        alternateIds: [...(previous.alternateIds ?? []), previous.id],
+        alternateEventIds: [...(previous.alternateEventIds ?? []), article.eventId],
+      };
     });
     const changes = store.saveEdition({ id: randomUUID(), at: new Date(now).toISOString() }, articles, updates);
     status = failures ? (store.edition() ? 'partial' : 'error') : 'idle';

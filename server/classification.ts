@@ -154,8 +154,14 @@ export function storyId(terms: string[]) {
 
 export const articleId = (url: string) => stableId(url);
 
+function sharesIdentifier(left: string, right: string, leftAliases?: string[], rightAliases?: string[]) {
+  return left === right || leftAliases?.includes(right) ||
+    rightAliases?.some(alias => alias === left || leftAliases?.includes(alias));
+}
+
 export function sameStory(left: Article, right: Article) {
-  if (left.eventId === right.eventId || left.id === right.id) return true;
+  if (sharesIdentifier(left.eventId, right.eventId, left.alternateEventIds, right.alternateEventIds) ||
+    sharesIdentifier(left.id, right.id, left.alternateIds, right.alternateIds)) return true;
   const [leftPhase, ...leftWords] = left.eventTerms ?? eventTerms(left.title);
   const [rightPhase, ...rightWords] = right.eventTerms ?? eventTerms(right.title);
   if (leftPhase !== rightPhase && leftPhase !== 'general' && rightPhase !== 'general') return false;
