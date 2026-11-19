@@ -9,7 +9,7 @@ import { categories, type Article } from '../shared/model.js';
 import { applyVote, fillEdition, newReader, populateCategory, resetPreferences, undoVote } from '../server/board.js';
 import { articleId, canonicalUrl, eventTerms, matchesArticle, normalize, storyId } from '../server/classification.js';
 import { demoArticles } from '../server/demo.js';
-import { distinctStories, importEdition } from '../server/ingest.js';
+import { distinctStories, importEdition, readSource } from '../server/ingest.js';
 import { createRefresher } from '../server/refresh.js';
 import { Store } from '../server/store.js';
 
@@ -31,21 +31,21 @@ test('plus prefers its subtopic and minus never recycles an already shown topic'
   const reader = newReader();
   reader.slots = [{ id: 'market-slot', categoryId: 'market', discovery: false, articleId: before.id }];
   reader.seen = [before.eventId];
-  assert.equal(applyVote(reader, 'market-slot', before.id, 1, catalog, catalog, now), true);
+  assert.equal(applyVote(reader, 'market-slot', before.id, 1, catalog, now), true);
   assert.equal(reader.slots[0].articleId, related.id);
-  assert.equal(applyVote(reader, 'market-slot', before.id, 1, catalog, catalog, now), false);
+  assert.equal(applyVote(reader, 'market-slot', before.id, 1, catalog, now), false);
   assert.equal(reader.weights['גיוסי AI'], 1);
-  assert.equal(applyVote(reader, 'market-slot', related.id, -1, catalog, catalog, now), true);
+  assert.equal(applyVote(reader, 'market-slot', related.id, -1, catalog, now), true);
   assert.equal(reader.slots[0].articleId, different.id);
   assert.equal(reader.slots[0].categoryId, 'market');
-  assert.equal(applyVote(reader, 'market-slot', different.id, -1, catalog, catalog, now), true);
+  assert.equal(applyVote(reader, 'market-slot', different.id, -1, catalog, now), true);
   assert.equal(reader.slots[0].articleId, different.id);
   assert.equal(reader.slots[0].categoryId, 'market');
-  assert.equal(undoVote(reader), true);
+  assert.equal(undoVote(reader, catalog), true);
   assert.equal(reader.slots[0].articleId, different.id);
   assert.equal(reader.slots[0].id, 'market-slot');
   assert.ok(reader.seen.includes(before.eventId));
-  assert.equal(applyVote(reader, 'market-slot', different.id, 1, catalog, catalog, now), true);
+  assert.equal(applyVote(reader, 'market-slot', different.id, 1, catalog, now), true);
   assert.equal(reader.slots[0].articleId, different.id);
   resetPreferences(reader);
   assert.deepEqual(reader.weights, {});
@@ -72,7 +72,7 @@ test('personal queries match bilingual synonyms in the geographic scope, and plu
   assert.equal(reader.slots.length, 2);
   const personal = reader.slots.find(slot => slot.categoryId === 'custom')!;
   assert.equal(personal.articleId, next.id);
-  assert.equal(applyVote(reader, personal.id, next.id, 1, catalog, catalog, now), true);
+  assert.equal(applyVote(reader, personal.id, next.id, 1, catalog, now), true);
   assert.equal(personal.articleId, alternate.id);
   assert.equal(personal.categoryId, 'custom');
 });
@@ -97,7 +97,7 @@ test('consecutive votes on different cards never resurface a story, even after t
     const otherIds = reader.slots.filter(other => other !== slot).map(other => other.articleId);
     const seen = new Set(reader.seen);
     const direction = Math.floor(index / slotCount) % 2 ? -1 : 1;
-    assert.equal(applyVote(reader, slot.id, previous!, direction, catalog, catalog, now, () => 0.4), true);
+    assert.equal(applyVote(reader, slot.id, previous!, direction, catalog, now, () => 0.4), true);
     assert.ok(slot.articleId);
     if (index < 2) assert.notEqual(slot.articleId, previous);
     if (slot.articleId !== previous) {
@@ -122,25 +122,24 @@ test('minus uses an unseen same-topic story over a seen event with another headl
   reader.slots = [{ id: 'model-slot', categoryId: 'ai', discovery: false, articleId: current.id }];
   reader.seen = [current.eventId, previouslyShown.eventId];
   const catalog = [current, duplicate, newStory];
-  assert.ok(applyVote(reader, 'model-slot', current.id, -1, catalog, catalog, now));
+  assert.ok(applyVote(reader, 'model-slot', current.id, -1, catalog, now));
   assert.equal(reader.slots[0].articleId, newStory.id);
 });
 
-test('full editions reserve alternates, recover older sections, and keep a sole article visible if inventory is exhausted', () => {
+test('full editions reserve alternates and keep a sole article visible if inventory is exhausted', () => {
   const reader = newReader();
-  const oldDate = new Date(now - 30 * 86400_000).toISOString();
   const first = story('first chip', 'chips', ['מעבדים']);
-  const archive = { ...story('older chip', 'chips', ['מעבדים']), publishedAt: oldDate };
-  const ai = { ...story('lone archived model', 'ai', ['מודלים']), publishedAt: oldDate };
-  const catalog = [first, archive, ai];
-  fillEdition(reader, catalog, edition, () => 0, [first]);
+  const alternate = { ...story('another chip', 'chips', ['מעבדים']), publishedAt: new Date(now - 1000).toISOString() };
+  const ai = story('lone model', 'ai', ['מודלים']);
+  const catalog = [first, alternate, ai];
+  fillEdition(reader, catalog, edition, () => 0);
   assert.deepEqual(reader.slots.map(slot => slot.categoryId), ['ai', 'chips']);
   const [aiSlot, chipSlot] = reader.slots;
   assert.equal(aiSlot.articleId, ai.id);
   assert.equal(chipSlot.articleId, first.id);
-  assert.equal(applyVote(reader, chipSlot.id, first.id, -1, catalog, [first], now), true);
-  assert.equal(chipSlot.articleId, archive.id);
-  assert.equal(applyVote(reader, aiSlot.id, ai.id, 1, catalog, [first], now), true);
+  assert.equal(applyVote(reader, chipSlot.id, first.id, -1, catalog, now), true);
+  assert.equal(chipSlot.articleId, alternate.id);
+  assert.equal(applyVote(reader, aiSlot.id, ai.id, 1, catalog, now), true);
   assert.equal(aiSlot.articleId, ai.id);
   assert.equal(reader.slots.length, 2);
 });
@@ -152,10 +151,10 @@ test('exactly six matching stories fill the page even when there is no spare', (
   assert.equal(reader.slots.length, 6);
   const [slot] = reader.slots;
   const original = slot.articleId;
-  assert.equal(applyVote(reader, slot.id, original!, 1, catalog, catalog, now), true);
+  assert.equal(applyVote(reader, slot.id, original!, 1, catalog, now), true);
   assert.equal(slot.articleId, original);
   const stored = [...catalog, story('standby model', 'ai', ['מודלים'])];
-  assert.equal(applyVote(reader, slot.id, original!, -1, stored, stored, now), true);
+  assert.equal(applyVote(reader, slot.id, original!, -1, stored, now), true);
   assert.equal(slot.articleId, stored[6].id);
   assert.equal(reader.slots.length, 6);
 });
@@ -172,7 +171,7 @@ test('a personal category uses the full matching catalog and keeps its cards on 
   const builtIn = reader.slots.filter(slot => slot.categoryId !== 'custom').map(slot => slot.articleId);
   const [slot] = personal;
   const original = slot.articleId;
-  assert.equal(applyVote(reader, slot.id, original!, -1, catalog, catalog, now), true);
+  assert.equal(applyVote(reader, slot.id, original!, -1, catalog, now), true);
   assert.notEqual(slot.articleId, original);
   assert.equal(new Set(personal.map(item => item.articleId)).size, 6);
   assert.ok(personal.every(item => matching.some(article => article.id === item.articleId)));
@@ -187,12 +186,12 @@ test('undo restores the voted category slot without touching a newly created per
   const catalog = [initial, replacement];
   fillEdition(reader, catalog, edition);
   const [slot] = reader.slots;
-  assert.equal(applyVote(reader, slot.id, initial.id, 1, catalog, catalog, now), true);
+  assert.equal(applyVote(reader, slot.id, initial.id, 1, catalog, now), true);
   reader.custom.push({ id: 'custom', label: 'רובוטיקה רפואית', color: 'custom-0' });
   populateCategory(reader, 'custom', [...catalog, newMatch], now);
   const personal = reader.slots.find(item => item.categoryId === 'custom')!;
   assert.equal(personal.articleId, newMatch.id);
-  assert.ok(undoVote(reader));
+  assert.ok(undoVote(reader, catalog));
   assert.equal(reader.slots.length, 2);
   assert.equal(reader.slots[0].articleId, initial.id);
   assert.equal(reader.slots[1], personal);
@@ -212,7 +211,7 @@ test('after 20 votes in one field, discovery keeps its six cards and rotates acr
   const regular = reader.slots.find(slot => !slot.discovery)!;
   const slotIds = reader.slots.map(slot => slot.id);
   const initialDiscovery = reader.slots.filter(slot => slot.discovery).map(slot => slot.articleId);
-  for (let i = 0; i < 20; i++) assert.equal(applyVote(reader, regular.id, regular.articleId!, 1, catalog, catalog, now, deterministic), true);
+  for (let i = 0; i < 20; i++) assert.equal(applyVote(reader, regular.id, regular.articleId!, 1, catalog, now, deterministic), true);
   assert.equal(reader.weights['מודלים'], 20);
   assert.deepEqual(reader.slots.filter(slot => slot.discovery).map(slot => slot.articleId), initialDiscovery);
   const nextReaderEdition = { id: 'next', at: edition.at };
@@ -224,7 +223,7 @@ test('after 20 votes in one field, discovery keeps its six cards and rotates acr
   const exposures = new Set<string>();
   const sources = new Set<string>();
   for (let i = 0; i < 20; i++) {
-    assert.equal(applyVote(reader, fixed.id, fixed.articleId!, 1, catalog, catalog, now, deterministic), true);
+    assert.equal(applyVote(reader, fixed.id, fixed.articleId!, 1, catalog, now, deterministic), true);
     assert.equal(fixed.categoryId, 'discover');
     const article = discovery.find(item => item.id === fixed.articleId)!;
     assert.ok(article);
@@ -261,8 +260,8 @@ test('SQLite persists isolated readers, personal categories, idempotency keys an
     const original = db.board(readerId, 'demo', 'idle');
     const ai = original.slots.find(slot => slot.categoryId === 'ai')!;
     const requestId = randomUUID();
-    const vote = db.board(readerId, 'demo', 'idle', requestId, (reader, catalog, fresh) => {
-      applyVote(reader, ai.id, ai.articleId!, 1, catalog, fresh, now);
+    const vote = db.board(readerId, 'demo', 'idle', requestId, (reader, catalog) => {
+      applyVote(reader, ai.id, ai.articleId!, 1, catalog, now);
       reader.custom.push({ id: 'saved', label: 'Robotics', color: 'custom-0' });
     });
     assert.notEqual(vote.slots.find(slot => slot.id === ai.id)?.articleId, ai.articleId);
@@ -272,11 +271,11 @@ test('SQLite persists isolated readers, personal categories, idempotency keys an
     assert.deepEqual(reloaded, vote);
     assert.equal(db.board(other, 'demo', 'idle').hasPreferences, false);
     assert.equal(db.board(other, 'demo', 'idle').categories.some(category => category.id === 'saved'), false);
-    const undone = db.board(readerId, 'demo', 'idle', randomUUID(), reader => { assert.ok(undoVote(reader)); });
+    const undone = db.board(readerId, 'demo', 'idle', randomUUID(), (reader, catalog) => { assert.ok(undoVote(reader, catalog)); });
     assert.equal(undone.slots.find(slot => slot.id === ai.id)?.articleId, ai.articleId);
     assert.equal(undone.canUndo, false);
-    const votedAgain = db.board(readerId, 'demo', 'idle', randomUUID(), (reader, catalog, fresh) => {
-      assert.ok(applyVote(reader, ai.id, ai.articleId!, 1, catalog, fresh, now));
+    const votedAgain = db.board(readerId, 'demo', 'idle', randomUUID(), (reader, catalog) => {
+      assert.ok(applyVote(reader, ai.id, ai.articleId!, 1, catalog, now));
     });
     const nextArticle = votedAgain.slots.find(slot => slot.id === ai.id)?.articleId;
     assert.notEqual(nextArticle, ai.articleId);
@@ -307,6 +306,88 @@ test('trusted structured editions require explicit verification for alternate He
   }
 });
 
+const WEEK = 7 * 86400_000;
+
+test('structured imports use the same inclusive seven-day publication window in every section', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'daily-news-window-'));
+  const file = join(dir, 'edition.json');
+  try {
+    const offsets = [-WEEK - 1, -WEEK, 0, 1];
+    writeFileSync(file, JSON.stringify(categories.flatMap(({ id }) => offsets.map(offset => ({
+      ...story(`${id}-${offset}`, id, ['חדשות']),
+      publishedAt: new Date(now + offset).toISOString(),
+    })))));
+    const imported = await importEdition(file, now);
+    for (const { id } of categories) {
+      assert.deepEqual(imported.filter(article => article.category === id).map(article => article.publishedAt),
+        [new Date(now - WEEK).toISOString(), edition.at]);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Atom eligibility uses publication time and excludes entries with only an update date', async t => {
+  const entry = (title: string, published?: number) => `<entry><title>${title}</title>
+    <link href="https://publisher.example/${title}"/><updated>${edition.at}</updated>
+    ${published === undefined ? '' : `<published>${new Date(published).toISOString()}</published>`}
+    </entry>`;
+  t.mock.method(globalThis, 'fetch', async () => new Response(`<?xml version="1.0"?>
+    <feed xmlns="http://www.w3.org/2005/Atom"><title>Discovery Feed</title>
+    ${entry('old', now - WEEK - 1)}
+    ${entry('boundary', now - WEEK)}
+    ${entry('updated-only')}
+    ${entry('future', now + 1)}
+    </feed>`));
+  const result = await readSource({ name: 'Discovery feed', url: 'https://publisher.example/atom', category: 'discover' }, now);
+  assert.deepEqual(result.candidates.map(article => article.title), ['boundary']);
+});
+
+test('a live reader loses expired cards without waiting for a new edition and cannot vote them back in', t => {
+  let clock = now;
+  t.mock.method(Date, 'now', () => clock);
+  const db = new Store(':memory:');
+  try {
+    const user = randomUUID();
+    const expiring = (name: string, category: Article['category']) => ({
+      ...story(name, category, ['חדשות']),
+      publishedAt: new Date(now - WEEK + 1_000).toISOString(),
+    });
+    const ai = expiring('expiring AI', 'ai');
+    const discovery = expiring('expiring discovery', 'discover');
+    const archive = { ...story('archived AI', 'ai', ['חדשות']), publishedAt: new Date(now - WEEK - 1).toISOString() };
+    const future = { ...story('future AI', 'ai', ['חדשות']), publishedAt: new Date(now + 5_000).toISOString() };
+    db.saveEdition(edition, [ai, discovery, archive, future]);
+    const before = db.board(user, 'live', 'idle');
+    assert.deepEqual(before.slots.map(slot => slot.articleId), [discovery.id, ai.id]);
+    const [discoverySlot, aiSlot] = before.slots;
+    const nextAI = story('new AI', 'ai', ['חדשות']);
+    const nextDiscovery = story('new discovery', 'discover', ['חדשות']);
+    db.saveEdition({ id: 'next', at: edition.at }, [nextAI, nextDiscovery]);
+    const voted = db.board(user, 'live', 'idle', randomUUID(), (reader, catalog) => {
+      assert.ok(applyVote(reader, aiSlot.id, ai.id, 1, catalog, clock));
+    });
+    assert.equal(voted.slots.find(slot => slot.id === aiSlot.id)?.articleId, nextAI.id);
+    assert.equal(voted.edition?.id, edition.id);
+    clock += 1_001;
+    const refreshed = db.board(user, 'live', 'idle', randomUUID(), (reader, catalog) => {
+      assert.ok(reader.seen.includes(ai.eventId));
+      assert.ok(reader.seen.includes(discovery.eventId));
+      assert.equal(reader.weights['חדשות'], 1);
+      assert.equal(applyVote(reader, discoverySlot.id, discovery.id, -1, catalog, clock), false);
+      assert.ok(undoVote(reader, catalog));
+    });
+    assert.equal(refreshed.edition?.id, edition.id);
+    assert.equal(refreshed.slots.find(slot => slot.id === discoverySlot.id)?.articleId, nextDiscovery.id);
+    assert.equal(refreshed.slots.find(slot => slot.id === aiSlot.id)?.articleId, nextAI.id);
+    assert.equal(refreshed.hasPreferences, false);
+    clock = now + WEEK + 6_000;
+    assert.deepEqual(db.board(user, 'live', 'idle').slots, []);
+  } finally {
+    db.close();
+  }
+});
+
 test('a vote arriving during a scheduled refresh finishes in the still-visible edition', () => {
   const db = new Store(':memory:');
   try {
@@ -320,8 +401,8 @@ test('a vote arriving during a scheduled refresh finishes in the still-visible e
     const slot = before.slots[0];
     const secondEdition = { id: 'next edition', at: edition.at };
     db.saveEdition(secondEdition, [next, reserve, standby]);
-    const voted = db.board(user, 'live', 'idle', randomUUID(), (reader, catalog, fresh) => {
-      assert.equal(applyVote(reader, slot.id, slot.articleId!, 1, catalog, fresh, now), true);
+    const voted = db.board(user, 'live', 'idle', randomUUID(), (reader, catalog) => {
+      assert.equal(applyVote(reader, slot.id, slot.articleId!, 1, catalog, now), true);
     });
     assert.equal(voted.edition?.id, edition.id);
     assert.equal(voted.slots[0].id, slot.id);

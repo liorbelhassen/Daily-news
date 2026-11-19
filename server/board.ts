@@ -35,11 +35,6 @@ export function categoryIncludes(id: string, article: Article, reader: Reader) {
   return personal ? matchesArticle(personal.label, article) : article.category === id;
 }
 
-function preferFresh(choices: Article[], freshIds: Set<string>) {
-  const recent = choices.filter(article => freshIds.has(article.id));
-  return recent.length ? recent : choices;
-}
-
 function remember(reader: Reader, article: Article) {
   if (!reader.seen.includes(article.eventId)) reader.seen.push(article.eventId);
   if (article.category !== 'discover') return;
@@ -101,69 +96,84 @@ function newSlot(reader: Reader, categoryId: string, article: Article) {
 }
 
 export function fillEdition(
-  reader: Reader, catalog: Article[], edition: Edition, random = Math.random, fresh = catalog,
-  refreshExisting = true,
+  reader: Reader, catalog: Article[], edition: Edition, random = Math.random, refreshExisting = true,
 ) {
-  if (reader.editionId === edition.id && reader.layoutVersion === LAYOUT_VERSION) return;
-  if (!catalog.length) return;
-  const updateCards = refreshExisting && reader.layoutVersion === LAYOUT_VERSION;
-  if (reader.layoutVersion !== LAYOUT_VERSION) {
+  const editionChanged = reader.editionId !== edition.id;
+  const upgrade = reader.layoutVersion !== LAYOUT_VERSION;
+  const byId = new Map(catalog.map(article => [article.id, article]));
+  const availableSlot = (slot: Slot) => {
+    const article = byId.get(slot.articleId ?? '');
+    return article && categoryIncludes(slot.categoryId, article, reader);
+  };
+  const affected = new Set(reader.slots.filter(slot => !availableSlot(slot)).map(slot => slot.categoryId));
+  if (!editionChanged && !upgrade && !affected.size) return;
+  if (upgrade) {
     // Older layouts may include vacant or linked slots. Keep each valid, already-displayed card in place.
-    const byId = new Map(catalog.map(article => [article.id, article]));
-    reader.slots = reader.slots.filter(slot => {
-      const article = slot.articleId && byId.get(slot.articleId);
-      return article && categoryIncludes(slot.categoryId, article, reader);
-    });
+    reader.slots = reader.slots.filter(availableSlot);
     reader.layoutVersion = LAYOUT_VERSION;
   }
-  reader.editionId = edition.id;
-  reader.lastVote = null;
+  if (editionChanged || upgrade) {
+    reader.editionId = edition.id;
+    reader.lastVote = null;
+  }
   const now = Date.parse(edition.at);
   for (const category of [...categories, ...reader.custom]) {
-    populateCategory(reader, category.id, catalog, now, fresh, random, updateCards);
+    if (editionChanged || upgrade || affected.has(category.id)) {
+      populateCategory(reader, category.id, catalog, now, random, refreshExisting && editionChanged && !upgrade);
+    }
   }
 }
 
 export function populateCategory(
-  reader: Reader, categoryId: string, catalog: Article[], now: number, fresh = catalog, random = Math.random,
+  reader: Reader, categoryId: string, catalog: Article[], now: number, random = Math.random,
   refreshExisting = false,
 ) {
-  const current = reader.slots.filter(slot => slot.categoryId === categoryId);
+  const eligible = catalog.filter(article => categoryIncludes(categoryId, article, reader));
+  const eligibleIds = new Set(eligible.map(article => article.id));
   const seen = new Set(reader.seen);
-  const available = catalog.filter(article => !seen.has(article.eventId) && categoryIncludes(categoryId, article, reader));
-  const freshIds = new Set(fresh.map(article => article.id));
-  const take = (choices: Article[]) => {
-    const pool = preferFresh(choices, freshIds);
+  const available = eligible.filter(article => !seen.has(article.eventId));
+  const take = () => {
     const article = categoryId === 'discover'
-      ? pickDiscovery(reader, pool, now, random)!
-      : bestNormal(reader, pool, now)!;
+      ? pickDiscovery(reader, available, now, random)!
+      : bestNormal(reader, available, now)!;
     available.splice(available.indexOf(article), 1);
     return article;
   };
+
+  const current: Slot[] = [];
+  const removed = new Set<Slot>();
+  let replaced = 0;
+  for (const slot of reader.slots.filter(slot => slot.categoryId === categoryId)) {
+    if (eligibleIds.has(slot.articleId ?? '')) current.push(slot);
+    else if (available.length) {
+      show(reader, slot, take());
+      replaced++;
+    } else removed.add(slot);
+  }
+  if (removed.size) reader.slots = reader.slots.filter(slot => !removed.has(slot));
+
   // Fill gaps before refreshing existing cards, and leave a candidate for voting when possible.
-  const total = current.length + available.length;
+  const filled = current.length + replaced;
+  const total = filled + available.length;
   const reserve = total > 1 && total < CATEGORY_SIZE ? 1 : 0;
   const limit = Math.min(CATEGORY_SIZE, total - reserve);
-  for (let i = current.length; i < limit; i++) {
-    reader.slots.push(newSlot(reader, categoryId, take(available)));
+  for (let i = filled; i < limit; i++) {
+    reader.slots.push(newSlot(reader, categoryId, take()));
   }
   if (refreshExisting) {
-    const recent = available.filter(article => freshIds.has(article.id));
-    const refreshCount = Math.max(0, recent.length - 1);
+    const refreshCount = Math.max(0, available.length - 1);
     for (const slot of current.slice(0, refreshCount)) {
-      const article = take(recent);
-      recent.splice(recent.indexOf(article), 1);
-      show(reader, slot, article);
+      show(reader, slot, take());
     }
   }
 }
 
 export function applyVote(
   reader: Reader, slotId: string, expectedArticleId: string, vote: 1 | -1,
-  stored: Article[], fresh: Article[], now: number, random = Math.random,
+  catalog: Article[], now: number, random = Math.random,
 ) {
   const slot = reader.slots.find(item => item.id === slotId && item.articleId === expectedArticleId);
-  const current = stored.find(article => article.id === expectedArticleId);
+  const current = catalog.find(article => article.id === expectedArticleId);
   if (!slot || !current) return false;
   const topic = current.topics[0];
   const previousWeight = reader.weights[topic] ?? 0;
@@ -172,21 +182,23 @@ export function applyVote(
 
   const seen = new Set(reader.seen);
   seen.add(current.eventId);
-  const choices = stored.filter(article => !seen.has(article.eventId) && categoryIncludes(slot.categoryId, article, reader));
+  const choices = catalog.filter(article => !seen.has(article.eventId) && categoryIncludes(slot.categoryId, article, reader));
   const different = vote === -1 ? choices.filter(article => article.topics[0] !== topic) : [];
-  const pool = preferFresh(different.length ? different : choices, new Set(fresh.map(article => article.id)));
+  const pool = different.length ? different : choices;
   const similar = vote === 1 ? current : undefined;
   const replacement = slot.discovery ? pickDiscovery(reader, pool, now, random, similar) : bestNormal(reader, pool, now, similar);
   if (replacement) show(reader, slot, replacement);
   return true;
 }
 
-export function undoVote(reader: Reader) {
+export function undoVote(reader: Reader, catalog: Article[]) {
   const previous = reader.lastVote;
   if (!previous) return false;
-  const slot = reader.slots.find(item => item.id === previous.slot.id);
-  if (!slot) return false;
-  reader.slots[reader.slots.indexOf(slot)] = previous.slot;
+  const slot = reader.slots.findIndex(item => item.id === previous.slot.id);
+  if (slot !== -1 && catalog.some(article => article.id === previous.slot.articleId &&
+    categoryIncludes(previous.slot.categoryId, article, reader))) {
+    reader.slots[slot] = previous.slot;
+  }
   if (previous.previousWeight) reader.weights[previous.topic] = previous.previousWeight;
   else delete reader.weights[previous.topic];
   reader.lastVote = null;

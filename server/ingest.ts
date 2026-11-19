@@ -11,6 +11,7 @@ export const defaultSources: Source[] = [
   { name: 'AlleyWatch', url: 'https://www.alleywatch.com/feed/', region: 'מדינת ניו יורק', category: 'market' },
   { name: 'South China Morning Post', url: 'https://www.scmp.com/rss/36/feed/' },
   { name: 'TechCrunch', url: 'https://techcrunch.com/feed/' },
+  { name: 'Ars Technica', url: 'https://arstechnica.com/tech-policy/feed/', category: 'policy' },
   { name: 'NASA', url: 'https://www.nasa.gov/news-release/feed/', category: 'discover' },
   { name: 'Ars Technica', url: 'https://arstechnica.com/science/feed/', category: 'discover' },
   { name: 'Smithsonian Magazine', url: 'https://www.smithsonianmag.com/rss/latest_articles/', category: 'discover' },
@@ -18,10 +19,12 @@ export const defaultSources: Source[] = [
 ];
 
 export type Candidate = Omit<Article, 'titleHe'>;
-const parser = new Parser();
-const DAY = 86_400_000;
-export const isFresh = (article: { category: BuiltIn; publishedAt: string }, now: number) =>
-  Date.parse(article.publishedAt) > now - (article.category === 'discover' ? 21 : 7) * DAY;
+const parser = new Parser<object, { published?: string; updated?: string }>({
+  customFields: { item: ['published', 'updated'] },
+});
+const WEEK = 7 * 86_400_000;
+export const isFresh = (published: number, now: number) =>
+  published >= now - WEEK && published <= now;
 
 const isCategory = (value: unknown): value is BuiltIn => categories.some(category => category.id === value);
 const isRegion = (value: unknown): value is Source['region'] => standardRegions.some(region => region === value);
@@ -79,8 +82,10 @@ export async function readSource(source: Source, now: number, queries: string[] 
   for (const item of feed.items.slice(0, 55)) {
     const title = plain(item.title ?? '').slice(0, 360);
     const key = canonicalUrl(item.link ?? '');
-    const published = Date.parse(item.isoDate ?? item.pubDate ?? '');
-    if (!key || !title || /daily funding report/i.test(title) || !Number.isFinite(published) || published > now + 300_000) continue;
+    // rss-parser falls back to Atom's updated date, which can make an old article look new.
+    const date = item.published ?? (item.updated === undefined ? item.isoDate ?? item.pubDate : undefined);
+    const published = Date.parse(date ?? '');
+    if (!key || !title || /daily funding report/i.test(title) || !isFresh(published, now)) continue;
 
     const keywords = (item.categories ?? []).filter((value): value is string => typeof value === 'string')
       .slice(0, 12).map(value => plain(value).slice(0, 80)).filter(Boolean);
@@ -92,12 +97,11 @@ export async function readSource(source: Source, now: number, queries: string[] 
     const classification = classify(title, keywords.join(' '), source.category, applicable.length > 0);
     if (!classification) continue;
     const terms = eventTerms(title);
-    const article = {
+    candidates.push({
       ...classification, id: articleId(key), eventId: storyId(terms), eventTerms: terms,
       region, title, canonicalUrl: key, url: new URL(item.link!).href, source: source.name, publishedAt: new Date(published).toISOString(),
       keywords: [...keywords, ...applicable],
-    };
-    if (isFresh(article, now)) candidates.push(article);
+    });
   }
   return { scanned: feed.items.length, candidates };
 }
@@ -117,6 +121,8 @@ export async function importEdition(file: string, now: number): Promise<Article[
       typeof item.publishedAt !== 'string' || !Number.isFinite(Date.parse(item.publishedAt))) {
       throw new Error(`Invalid edition item at index ${index}.`);
     }
+    const published = Date.parse(item.publishedAt);
+    if (!isFresh(published, now)) return [];
     const title = plain(item.title);
     const canonical = canonicalUrl(item.url)!;
     const terms = eventTerms(title);
@@ -124,12 +130,12 @@ export async function importEdition(file: string, now: number): Promise<Article[
       id: articleId(canonical), canonicalUrl: canonical,
       eventId: typeof item.eventId === 'string' && item.eventId.trim() ? item.eventId.trim() : storyId(terms),
       eventTerms: terms, title, titleHe: plain(item.titleHe), url: new URL(item.url).href, source: plain(item.source),
-      category: item.category, region: plain(item.region), topics: item.topics.map(plain), publishedAt: new Date(item.publishedAt).toISOString(),
+      category: item.category, region: plain(item.region), topics: item.topics.map(plain), publishedAt: new Date(published).toISOString(),
     };
     if (item.heVerified === true && typeof item.heUrl === 'string' && canonicalUrl(item.heUrl) &&
       canonicalUrl(item.heUrl) !== canonicalUrl(item.url)) article.heUrl = new URL(item.heUrl).href;
     if (item.popularityVerified === true && Number.isFinite(item.popularity) && item.popularity >= 0) article.popularity = item.popularity;
-    return isFresh(article, now) && Date.parse(article.publishedAt) <= now + 300_000 ? [article] : [];
+    return [article];
   });
 }
 
