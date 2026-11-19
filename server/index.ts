@@ -73,6 +73,14 @@ app.post('/api/board/:command', (request, response) => {
     store.board(id, data.mode, data.refresh(), requestId, change);
   const invalid = (error: string) => { response.status(400).json({ error }); };
   switch (request.params.command) {
+    case 'refresh':
+      if (data.mode !== 'live') {
+        invalid('רענון מקורות חדשות זמין במצב חי בלבד.');
+        return;
+      }
+      void refresher.run();
+      response.status(202).json(store.board(id, data.mode, data.refresh()));
+      return;
     case 'vote': {
       const { slotId, articleId, vote } = input;
       if (typeof slotId !== 'string' || !uuid.test(slotId) || typeof articleId !== 'string' ||
