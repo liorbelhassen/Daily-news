@@ -10,6 +10,7 @@ import { applyVote, fillEdition, newReader, populateCategory, resetPreferences, 
 import { articleId, canonicalUrl, eventTerms, matchesArticle, normalize, storyId } from '../server/classification.js';
 import { demoArticles } from '../server/demo.js';
 import { distinctStories, importEdition, readSource } from '../server/ingest.js';
+import { searchPersonalNews } from '../server/personal-news.js';
 import { createRefresher } from '../server/refresh.js';
 import { Store } from '../server/store.js';
 
@@ -600,4 +601,131 @@ test('RSS refresh translates headlines, scopes by region and retains the last ed
     db.close();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('an arbitrary personal category searches by name, filters stale and unrelated news, and keeps its stories off built-in pages', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'daily-news-personal-'));
+  const file = join(dir, 'edition.json');
+  const db = new Store(':memory:');
+  const searches: string[] = [];
+  const query = 'שוניות אלמוגים';
+  const item = (title: string, path: string, date = now) => {
+    const link = encodeURIComponent(`https://publisher.example/${path}`);
+    return `<item><title>${title}</title><link>https://www.bing.com/news/apiclick.aspx?url=${link}</link>
+      <pubDate>${new Date(date).toUTCString()}</pubDate><News:Source>המקור</News:Source></item>`;
+  };
+  t.mock.method(globalThis, 'fetch', async (input: string) => {
+    const url = new URL(input);
+    assert.equal(url.hostname, 'www.bing.com');
+    searches.push(url.searchParams.get('q')!);
+    return new Response(`<rss version="2.0" xmlns:News="https://www.bing.com"><channel><title>Test</title>
+      ${item('שוניות אלמוגים משתקמות באוסטרליה', 'coral')}
+      ${item('שוניות אלמוגים בקניה נזקקות להגנה', 'old', now - 8 * 86_400_000)}
+      ${item('תחרות שחייה בקניה', 'irrelevant')}
+      </channel></rss>`);
+  });
+  try {
+    writeFileSync(file, '[]');
+    const user = randomUUID();
+    db.board(user, 'live', 'idle', randomUUID(), reader => {
+      reader.custom.push({ id: 'coral', label: query, color: 'custom-0' });
+    });
+    const refresh = createRefresher(db, { EDITION_FILE: file, PERSONAL_NEWS_SEARCH: 'on' });
+    refresh.queuePersonal(query);
+    assert.equal(refresh.status(), 'running');
+    // A full refresh requested during the targeted search runs as soon as that search ends.
+    await refresh.run();
+    assert.deepEqual(searches, [query, query]);
+    const [article] = db.catalog();
+    assert.equal(db.catalog().length, 1);
+    assert.equal(article.url, 'https://publisher.example/coral');
+    assert.equal(article.source, 'המקור');
+    const personal = db.board(user, 'live', 'idle');
+    assert.deepEqual(personal.slots.map(slot => slot.categoryId), ['coral']);
+    assert.equal(personal.slots[0].article?.personalQueries, undefined);
+    assert.deepEqual(db.board(randomUUID(), 'live', 'idle').slots, []);
+
+    // If a configured source carries the same article, retain the original ID and exposure history.
+    writeFileSync(file, JSON.stringify([{
+      ...article, region: 'קליפורניה', category: 'market',
+    }]));
+    await refresh.run();
+    assert.equal(db.catalog().length, 1);
+    assert.equal(db.catalog()[0].id, article.id);
+    assert.equal(db.catalog()[0].personalOnly, undefined);
+    assert.deepEqual(db.board(randomUUID(), 'live', 'idle').slots.map(slot => slot.categoryId), ['market']);
+    assert.deepEqual(db.board(user, 'live', 'idle').slots.map(slot => slot.categoryId), ['coral']);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('personal search merges existing coverage of the same funding round and preserves both event IDs', async t => {
+  const db = new Store(':memory:');
+  const first = { ...story('Israeli startup raises $11 million Seed for AI security', 'market', ['גיוסים']),
+    personalOnly: true as const, personalQueries: ['israeli startups'] };
+  const second = { ...story('Israeli Startup Vero raises $11M to secure enterprise AI', 'market', ['גיוסים']),
+    personalOnly: true as const, personalQueries: ['israeli technology'] };
+  const item = (article: Article, summary: string) => `<item><title>${article.title}</title><description>${summary}</description>
+    <link>${article.url}</link><pubDate>${new Date(now).toUTCString()}</pubDate></item>`;
+  t.mock.method(globalThis, 'fetch', async () => new Response(
+    `<rss version="2.0"><channel><title>Test</title>
+      ${item(first, 'Vero Security is building a platform for enterprise security.')}
+      ${item(second, 'Founded by two veterans, Vero Security develops technology to monitor AI tools.')}
+    </channel></rss>`,
+  ));
+  try {
+    db.saveEdition(edition, [first, second]);
+    const user = randomUUID();
+    db.board(user, 'live', 'idle', randomUUID(), reader => {
+      reader.custom.push({ id: 'tech', label: 'Israeli startups', color: 'custom-0' });
+      reader.seen.push(second.eventId);
+    });
+    const viewer = randomUUID();
+    const before = db.board(viewer, 'live', 'idle', randomUUID(), (reader, catalog) => {
+      reader.custom.push({ id: 'tech', label: 'Israeli technology', color: 'custom-0' });
+      populateCategory(reader, 'tech', catalog, now);
+    });
+    assert.deepEqual(before.slots.map(slot => slot.articleId), [second.id]);
+    const viewerOfBoth = randomUUID();
+    const beforeBoth = db.board(viewerOfBoth, 'live', 'idle', randomUUID(), (reader, catalog) => {
+      reader.custom.push({ id: 'tech', label: 'Israeli technology', color: 'custom-0' },
+        { id: 'startups', label: 'Israeli startups', color: 'custom-1' });
+      populateCategory(reader, 'tech', catalog, now);
+      populateCategory(reader, 'startups', catalog, now);
+    });
+    assert.deepEqual(beforeBoth.slots.map(slot => slot.articleId), [second.id, first.id]);
+    const refresh = createRefresher(db);
+    refresh.queuePersonal('Israeli startups');
+    while (refresh.status() === 'running') await new Promise(resolve => setImmediate(resolve));
+    const [merged] = db.catalog();
+    assert.equal(db.catalog().length, 1);
+    assert.deepEqual(new Set(merged.personalQueries), new Set(['israeli startups', 'israeli technology']));
+    assert.deepEqual(new Set([merged.eventId, ...(merged.alternateEventIds ?? [])].filter(id => [first.eventId, second.eventId].includes(id))),
+      new Set([first.eventId, second.eventId]));
+    assert.deepEqual(db.board(user, 'live', 'idle').slots, []);
+    const after = db.board(viewer, 'live', 'idle');
+    assert.deepEqual(after.slots.map(slot => [slot.id, slot.articleId]), [[before.slots[0].id, first.id]]);
+    const afterBoth = db.board(viewerOfBoth, 'live', 'idle');
+    assert.deepEqual(afterBoth.slots.map(slot => [slot.id, slot.articleId]), [[beforeBoth.slots[1].id, first.id]]);
+  } finally {
+    db.close();
+  }
+});
+
+test('personal search keeps equal-sized funding rounds for different companies with a shared name prefix', async t => {
+  const items = [
+    ['Quantum Machines raises $50 million for Israeli chip control', 'Quantum Machines is expanding its chipmaking technology.'],
+    ['Israeli startup Quantum Systems secures $50M to manufacture drone components', 'Quantum Systems has secured new financing.'],
+  ];
+  t.mock.method(globalThis, 'fetch', async () =>
+    new Response(`<rss version="2.0"><channel><title>Test</title>
+      ${items.map(([title, summary], index) => `<item><title>${title}</title><description>${summary}</description>
+      <link>https://publisher.example/${index}</link><pubDate>${new Date(now).toUTCString()}</pubDate></item>`).join('')}
+      </channel></rss>`));
+  const candidates = await searchPersonalNews('Israeli startups', now);
+  assert.equal(candidates.length, 2);
+  assert.ok(candidates.every(article => article.alternateEventIds?.length === 1));
+  assert.equal(distinctStories(candidates, []).length, 2);
 });

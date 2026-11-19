@@ -57,7 +57,7 @@ function variants(text: string) {
   return [normalized, singular(normalized).replace(/(^| )([והבכלמ])(?=[א-ת]{3,}(?: |$))/g, '$1')];
 }
 
-function matchesPhrase(text: string, phrase: string) {
+export function matchesPhrase(text: string, phrase: string) {
   const textVariants = variants(text);
   return variants(phrase).some(value => value && textVariants.some(candidate => includesPhrase(candidate, value)));
 }
@@ -78,8 +78,16 @@ export function matchesQuery(query: string, subject: string) {
 }
 
 export function matchesArticle(query: string, article: Article) {
-  return article.category !== 'discover' && standardRegions.some(region => region === article.region) &&
-    matchesQuery(query, [article.title, article.titleHe, ...article.topics, ...(article.keywords ?? [])].join(' '));
+  return (article.personalQueries?.includes(normalize(query)) ?? false) ||
+    (!article.personalOnly && article.category !== 'discover' && standardRegions.some(region => region === article.region) &&
+      matchesQuery(query, [article.title, article.titleHe, ...article.topics, ...(article.keywords ?? [])].join(' ')));
+}
+
+export function englishTopic(query: string) {
+  const key = normalize(query);
+  const topic = Object.entries(lexicon).find(([label, aliases]) =>
+    [label, ...aliases].some(alias => normalize(alias) === key));
+  return topic?.[1].find(alias => /^[a-z]/i.test(alias));
 }
 
 export function regionOf(title: string, description: string, fallback?: string) {
@@ -159,7 +167,7 @@ function sharesIdentifier(left: string, right: string, leftAliases?: string[], r
     rightAliases?.some(alias => alias === left || leftAliases?.includes(alias));
 }
 
-export function sameStory(left: Article, right: Article) {
+export function sameStory(left: Omit<Article, 'titleHe'>, right: Omit<Article, 'titleHe'>) {
   if (sharesIdentifier(left.eventId, right.eventId, left.alternateEventIds, right.alternateEventIds) ||
     sharesIdentifier(left.id, right.id, left.alternateIds, right.alternateIds)) return true;
   const [leftPhase, ...leftWords] = left.eventTerms ?? eventTerms(left.title);

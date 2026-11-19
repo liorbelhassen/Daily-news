@@ -32,7 +32,11 @@ export const LAYOUT_VERSION = 2;
 
 export function categoryIncludes(id: string, article: Article, reader: Reader) {
   const personal = reader.custom.find(category => category.id === id);
-  return personal ? matchesArticle(personal.label, article) : article.category === id;
+  return personal ? matchesArticle(personal.label, article) : !article.personalOnly && article.category === id;
+}
+
+function alreadySeen(article: Article, seen: Set<string>) {
+  return seen.has(article.eventId) || article.alternateEventIds?.some(id => seen.has(id));
 }
 
 function remember(reader: Reader, article: Article) {
@@ -131,7 +135,7 @@ export function populateCategory(
   const eligible = catalog.filter(article => categoryIncludes(categoryId, article, reader));
   const eligibleIds = new Set(eligible.map(article => article.id));
   const seen = new Set(reader.seen);
-  const available = eligible.filter(article => !seen.has(article.eventId));
+  const available = eligible.filter(article => !alreadySeen(article, seen));
   const take = () => {
     const article = categoryId === 'discover'
       ? pickDiscovery(reader, available, now, random)!
@@ -181,7 +185,7 @@ export function applyVote(
 
   const seen = new Set(reader.seen);
   seen.add(current.eventId);
-  const choices = catalog.filter(article => !seen.has(article.eventId) && categoryIncludes(slot.categoryId, article, reader));
+  const choices = catalog.filter(article => !alreadySeen(article, seen) && categoryIncludes(slot.categoryId, article, reader));
   const different = vote === -1 ? choices.filter(article => article.topics[0] !== topic) : [];
   const pool = different.length ? different : choices;
   const similar = vote === 1 ? current : undefined;
@@ -194,7 +198,8 @@ export function undoVote(reader: Reader, catalog: Article[]) {
   const previous = reader.lastVote;
   if (!previous) return false;
   const slot = reader.slots.findIndex(item => item.id === previous.slot.id);
-  if (slot !== -1 && catalog.some(article => article.id === previous.slot.articleId &&
+  if (slot !== -1 && !reader.slots.some((other, index) => index !== slot && other.articleId === previous.slot.articleId) &&
+    catalog.some(article => article.id === previous.slot.articleId &&
     categoryIncludes(previous.slot.categoryId, article, reader))) {
     reader.slots[slot] = previous.slot;
   }
