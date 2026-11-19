@@ -19,7 +19,7 @@ const edition = { id: 'sample', at: new Date(now).toISOString() };
 function story(name: string, category: Article['category'], topics: string[], source = 'Example Publisher'): Article {
   const url = `https://example.com/${encodeURIComponent(name)}`;
   return { id: articleId(url), eventId: name, category, url, canonicalUrl: url, title: name, titleHe: `כתבה על ${name}`,
-    publishedAt: edition.at, source, region: category === 'discover' ? 'עולם' : 'קליפורניה', topics };
+    publishedAt: edition.at, publicationDateVerified: true, source, region: category === 'discover' ? 'עולם' : 'קליפורניה', topics };
 }
 
 test('plus prefers its subtopic and minus never recycles an already shown topic', () => {
@@ -341,6 +341,32 @@ test('Atom eligibility uses publication time and excludes entries with only an u
     </feed>`));
   const result = await readSource({ name: 'Discovery feed', url: 'https://publisher.example/atom', category: 'discover' }, now);
   assert.deepEqual(result.candidates.map(article => article.title), ['boundary']);
+});
+
+test('legacy articles need a confirmed publication date before they can appear on the live board', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'daily-news-publication-'));
+  const file = join(dir, 'edition.json');
+  const db = new Store(':memory:');
+  try {
+    const reader = randomUUID();
+    const verified = story('verified story', 'discover', ['מדע']);
+    const legacy = story('legacy story', 'ai', ['מודלים']);
+    const updatedOnly = story('updated only', 'policy', ['רגולציה']);
+    db.saveEdition(edition, [verified, ...[legacy, updatedOnly].map(article => ({
+      ...article, publicationDateVerified: undefined,
+    }))]);
+    assert.deepEqual(db.board(reader, 'live', 'idle').slots.map(slot => slot.articleId), [verified.id]);
+    const publishedAt = new Date(now - 2 * 86400_000).toISOString();
+    writeFileSync(file, JSON.stringify([{ ...legacy, publishedAt }]));
+    await createRefresher(db, { EDITION_FILE: file }).run();
+    assert.deepEqual(db.board(reader, 'live', 'idle').slots.map(slot => [slot.articleId, slot.article?.publishedAt]), [
+      [verified.id, verified.publishedAt], [legacy.id, publishedAt],
+    ]);
+    assert.equal(db.catalog().length, 3);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('a live reader loses expired cards without waiting for a new edition and cannot vote them back in', t => {

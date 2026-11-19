@@ -100,6 +100,7 @@ export async function readSource(source: Source, now: number, queries: string[] 
     candidates.push({
       ...classification, id: articleId(key), eventId: storyId(terms), eventTerms: terms,
       region, title, canonicalUrl: key, url: new URL(item.link!).href, source: source.name, publishedAt: new Date(published).toISOString(),
+      publicationDateVerified: true,
       keywords: [...keywords, ...applicable],
     });
   }
@@ -131,6 +132,7 @@ export async function importEdition(file: string, now: number): Promise<Article[
       eventId: typeof item.eventId === 'string' && item.eventId.trim() ? item.eventId.trim() : storyId(terms),
       eventTerms: terms, title, titleHe: plain(item.titleHe), url: new URL(item.url).href, source: plain(item.source),
       category: item.category, region: plain(item.region), topics: item.topics.map(plain), publishedAt: new Date(published).toISOString(),
+      publicationDateVerified: true,
     };
     if (item.heVerified === true && typeof item.heUrl === 'string' && canonicalUrl(item.heUrl) &&
       canonicalUrl(item.heUrl) !== canonicalUrl(item.url)) article.heUrl = new URL(item.heUrl).href;

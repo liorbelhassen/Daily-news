@@ -33,9 +33,14 @@ export function createRefresher(store: Store, env: NodeJS.ProcessEnv = process.e
     })));
     const raw = fetched.flatMap(result => result.candidates);
     const byId = new Map(raw.map(article => [article.id, article]));
+    const importedById = new Map(imported.map(article => [article.id, article]));
     const updates = existing.flatMap(article => {
-      const observed = byId.get(article.id)?.keywords ?? [];
-      const keywords = [...new Set([...(article.keywords ?? []), ...observed])];
+      const observed = byId.get(article.id);
+      const confirmed = importedById.get(article.id) ?? observed;
+      const keywords = [...new Set([...(article.keywords ?? []), ...(observed?.keywords ?? [])])];
+      if (!article.publicationDateVerified && confirmed) {
+        return [{ ...article, keywords, publishedAt: confirmed.publishedAt, publicationDateVerified: true as const }];
+      }
       return keywords.length > (article.keywords?.length ?? 0) ? [{ ...article, keywords }] : [];
     });
     const importedNew = distinctStories(imported, existing);

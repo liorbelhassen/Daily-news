@@ -58,13 +58,13 @@ export class Store {
     return [...new Set(labels)];
   }
 
-  saveEdition(edition: Edition, articles: Article[], keywordUpdates: Article[] = []) {
+  saveEdition(edition: Edition, articles: Article[], updates: Article[] = []) {
     return this.transaction(() => {
       let changes = 0;
       const upsert = this.db.prepare('INSERT OR IGNORE INTO articles (id, event_id, data) VALUES (?, ?, ?)');
       const update = this.db.prepare('UPDATE articles SET data = ? WHERE id = ?');
       for (const article of articles) changes += Number(upsert.run(article.id, article.eventId, JSON.stringify(article)).changes);
-      for (const article of keywordUpdates) changes += Number(update.run(JSON.stringify(article), article.id).changes);
+      for (const article of updates) changes += Number(update.run(JSON.stringify(article), article.id).changes);
       if (changes) {
         this.db.prepare('INSERT OR IGNORE INTO editions (id, at) VALUES (?, ?)').run(edition.id, edition.at);
         this.db.prepare(`
@@ -87,7 +87,8 @@ export class Store {
       const edition = this.edition();
       const now = Date.now();
       const stored = this.catalog();
-      const catalog = mode === 'demo' ? stored : stored.filter(article => isFresh(Date.parse(article.publishedAt), now));
+      const catalog = mode === 'demo' ? stored : stored.filter(article =>
+        article.publicationDateVerified && isFresh(Date.parse(article.publishedAt), now));
       const previousEdition = edition?.id !== reader.editionId && reader.editionId && operationId &&
         reader.layoutVersion === LAYOUT_VERSION
         ? this.db.prepare('SELECT id, at FROM editions WHERE id = ?').get(reader.editionId) as Edition | undefined
