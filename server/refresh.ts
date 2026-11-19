@@ -102,7 +102,7 @@ export function createRefresher(store: Store, env: NodeJS.ProcessEnv = process.e
     const fresh = distinctStories(raw, [...verified, ...importedNew]).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
     const verifiedById = new Map(verified.map(article => [article.id, article]));
     const retained: Candidate[] = [...verified, ...importedNew, ...fresh];
-    const superseded = new Set<string>();
+    const superseded = new Map<string, string>();
     const personal: Candidate[] = [];
     for (const result of personalResults) {
       const matches = retained.filter(article => sameStory(result, article));
@@ -118,7 +118,7 @@ export function createRefresher(store: Store, env: NodeJS.ProcessEnv = process.e
       } else {
         const duplicates = recent.filter(article => article !== match && article.personalOnly);
         for (const duplicate of duplicates) {
-          superseded.add(duplicate.id);
+          superseded.set(duplicate.id, match.id);
           retained.splice(retained.indexOf(duplicate), 1);
         }
         const saved = verifiedById.get(match.id);

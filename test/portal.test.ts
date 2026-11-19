@@ -10,6 +10,7 @@ import { applyVote, fillEdition, newReader, populateCategory, resetPreferences, 
 import { articleId, canonicalUrl, eventTerms, matchesArticle, normalize, storyId } from '../server/classification.js';
 import { demoArticles } from '../server/demo.js';
 import { distinctStories, importEdition, readSource } from '../server/ingest.js';
+import { searchPersonalNews } from '../server/personal-news.js';
 import { createRefresher } from '../server/refresh.js';
 import { Store } from '../server/store.js';
 
@@ -681,6 +682,20 @@ test('personal search merges existing coverage of the same funding round and pre
       reader.custom.push({ id: 'tech', label: 'Israeli startups', color: 'custom-0' });
       reader.seen.push(second.eventId);
     });
+    const viewer = randomUUID();
+    const before = db.board(viewer, 'live', 'idle', randomUUID(), (reader, catalog) => {
+      reader.custom.push({ id: 'tech', label: 'Israeli technology', color: 'custom-0' });
+      populateCategory(reader, 'tech', catalog, now);
+    });
+    assert.deepEqual(before.slots.map(slot => slot.articleId), [second.id]);
+    const viewerOfBoth = randomUUID();
+    const beforeBoth = db.board(viewerOfBoth, 'live', 'idle', randomUUID(), (reader, catalog) => {
+      reader.custom.push({ id: 'tech', label: 'Israeli technology', color: 'custom-0' },
+        { id: 'startups', label: 'Israeli startups', color: 'custom-1' });
+      populateCategory(reader, 'tech', catalog, now);
+      populateCategory(reader, 'startups', catalog, now);
+    });
+    assert.deepEqual(beforeBoth.slots.map(slot => slot.articleId), [second.id, first.id]);
     const refresh = createRefresher(db);
     refresh.queuePersonal('Israeli startups');
     while (refresh.status() === 'running') await new Promise(resolve => setImmediate(resolve));
@@ -690,7 +705,27 @@ test('personal search merges existing coverage of the same funding round and pre
     assert.deepEqual(new Set([merged.eventId, ...(merged.alternateEventIds ?? [])].filter(id => [first.eventId, second.eventId].includes(id))),
       new Set([first.eventId, second.eventId]));
     assert.deepEqual(db.board(user, 'live', 'idle').slots, []);
+    const after = db.board(viewer, 'live', 'idle');
+    assert.deepEqual(after.slots.map(slot => [slot.id, slot.articleId]), [[before.slots[0].id, first.id]]);
+    const afterBoth = db.board(viewerOfBoth, 'live', 'idle');
+    assert.deepEqual(afterBoth.slots.map(slot => [slot.id, slot.articleId]), [[beforeBoth.slots[1].id, first.id]]);
   } finally {
     db.close();
   }
+});
+
+test('personal search keeps equal-sized funding rounds for different companies with a shared name prefix', async t => {
+  const items = [
+    ['Quantum Machines raises $50 million for Israeli chip control', 'Quantum Machines is expanding its chipmaking technology.'],
+    ['Israeli startup Quantum Systems secures $50M to manufacture drone components', 'Quantum Systems has secured new financing.'],
+  ];
+  t.mock.method(globalThis, 'fetch', async () =>
+    new Response(`<rss version="2.0"><channel><title>Test</title>
+      ${items.map(([title, summary], index) => `<item><title>${title}</title><description>${summary}</description>
+      <link>https://publisher.example/${index}</link><pubDate>${new Date(now).toUTCString()}</pubDate></item>`).join('')}
+      </channel></rss>`));
+  const candidates = await searchPersonalNews('Israeli startups', now);
+  assert.equal(candidates.length, 2);
+  assert.ok(candidates.every(article => article.alternateEventIds?.length === 1));
+  assert.equal(distinctStories(candidates, []).length, 2);
 });

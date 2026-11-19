@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { categories, type Article, type Board } from '../shared/model.js';
-import { fillEdition, LAYOUT_VERSION, newReader, type Reader } from './board.js';
+import { categoryIncludes, fillEdition, LAYOUT_VERSION, newReader, type Reader } from './board.js';
 import { isFresh } from './ingest.js';
 
 type Edition = NonNullable<Board['edition']>;
@@ -58,7 +58,7 @@ export class Store {
     return [...new Set(labels)];
   }
 
-  saveEdition(edition: Edition, articles: Article[], updates: Article[] = [], superseded: Set<string> = new Set()) {
+  saveEdition(edition: Edition, articles: Article[], updates: Article[] = [], superseded = new Map<string, string>()) {
     return this.transaction(() => {
       let changes = 0;
       const upsert = this.db.prepare(`
@@ -70,13 +70,15 @@ export class Store {
       `);
       const update = this.db.prepare('UPDATE articles SET data = ? WHERE id = ?');
       const remove = this.db.prepare('DELETE FROM articles WHERE id = ?');
-      for (const id of superseded) changes += Number(remove.run(id).changes);
+      const removed = [...superseded.keys()].filter(id => remove.run(id).changes > 0);
+      changes += removed.length;
       for (const article of articles) {
         if (!superseded.has(article.id)) changes += Number(upsert.run(article.id, article.eventId, JSON.stringify(article)).changes);
       }
       for (const article of updates) {
         if (!superseded.has(article.id)) changes += Number(update.run(JSON.stringify(article), article.id).changes);
       }
+      if (removed.length) this.restoreMergedSlots(removed, superseded);
       if (changes) {
         this.db.prepare('INSERT OR IGNORE INTO editions (id, at) VALUES (?, ?)').run(edition.id, edition.at);
         this.db.prepare(`
@@ -86,6 +88,38 @@ export class Store {
       }
       return changes;
     });
+  }
+
+  private restoreMergedSlots(removed: string[], superseded: Map<string, string>) {
+    const replacements = new Map<string, Article>();
+    const articleById = this.db.prepare('SELECT data FROM articles WHERE id = ?');
+    for (const id of removed) {
+      let survivor = id;
+      while (superseded.has(survivor)) survivor = superseded.get(survivor)!;
+      const row = articleById.get(survivor);
+      if (row) replacements.set(id, JSON.parse(row.data as string));
+    }
+    const affected = this.db.prepare(`
+      SELECT id, data FROM readers WHERE EXISTS (
+        SELECT 1 FROM json_each(readers.data, '$.slots') AS slot
+        WHERE json_extract(slot.value, '$.articleId') IN (SELECT value FROM json_each(?1))
+      ) OR json_extract(data, '$.lastVote.slot.articleId') IN (SELECT value FROM json_each(?1))
+    `).all(JSON.stringify(removed));
+    const update = this.db.prepare('UPDATE readers SET data = ? WHERE id = ?');
+    for (const row of affected) {
+      const reader = JSON.parse(row.data as string) as Reader;
+      const displayed = new Set(reader.slots.map(slot => slot.articleId));
+      for (const slot of reader.slots) {
+        const article = replacements.get(slot.articleId ?? '');
+        if (!article || displayed.has(article.id) || !categoryIncludes(slot.categoryId, article, reader)) continue;
+        slot.articleId = article.id;
+        displayed.add(article.id);
+      }
+      const undo = reader.lastVote?.slot;
+      const article = replacements.get(undo?.articleId ?? '');
+      if (undo && article && categoryIncludes(undo.categoryId, article, reader)) undo.articleId = article.id;
+      update.run(JSON.stringify(reader), row.id as string);
+    }
   }
 
   board(

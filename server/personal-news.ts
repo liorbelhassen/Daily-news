@@ -39,13 +39,13 @@ function relatedEvents(title: string, summary: string, published: number) {
   const ids: string[] = [];
   const amount = title.match(/\$\s*([\d.]+)\s*(m(?:illion)?|b(?:illion)?)\b/i);
   const month = new Date(published).toISOString().slice(0, 7);
-  if (amount && /\b(?:raises?|raised|funding|fundraise|seed)\b/i.test(title)) {
+  if (amount && /\b(?:raises?|raised|secures?|secured|funding|fundraise|seed)\b/i.test(title)) {
     // The subject of a funding headline may be named only in the search snippet.
-    const lead = summary.match(/^([A-Z][\w-]+(?: [A-Z][\w-]+){0,2}) (?:is|has|raises?|raised|develops?|builds?|secured)\b/)?.[1];
-    const named = title.match(/\b(?:startup |company |firm )?([A-Z][a-z][\w-]+) raises?\b/)?.[1];
-    const company = lead ?? named;
+    const named = title.match(/\b([A-Z][\w-]+(?: [A-Z][\w-]+){0,2}) (?:raises?|raised|secures?|secured)\b/)?.[1];
+    const snippet = summary.match(/(?:^|[,.]\s+)([A-Z][\w-]+(?: [A-Z][\w-]+){0,2}) (?:is|has|raises?|raised|develops?|builds?|secured)\b/)?.[1];
+    const company = snippet && (!named || snippet.startsWith(named + ' ')) ? snippet : named;
     if (company) {
-      ids.push(storyId(['funding round', normalize(company).split(' ')[0], amount[1], amount[2].toLowerCase()[0], month]));
+      ids.push(storyId(['funding round', normalize(company), amount[1], amount[2].toLowerCase()[0], month]));
     }
   }
   const headline = normalize(title);

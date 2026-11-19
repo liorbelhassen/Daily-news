@@ -198,7 +198,8 @@ export function undoVote(reader: Reader, catalog: Article[]) {
   const previous = reader.lastVote;
   if (!previous) return false;
   const slot = reader.slots.findIndex(item => item.id === previous.slot.id);
-  if (slot !== -1 && catalog.some(article => article.id === previous.slot.articleId &&
+  if (slot !== -1 && !reader.slots.some((other, index) => index !== slot && other.articleId === previous.slot.articleId) &&
+    catalog.some(article => article.id === previous.slot.articleId &&
     categoryIncludes(previous.slot.categoryId, article, reader))) {
     reader.slots[slot] = previous.slot;
   }
