@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Article, Board } from '../shared/model.js';
+import { sameStory } from './classification.js';
 import { distinctStories, importEdition, readSource, sourcesFrom, translateTitles, type Candidate } from './ingest.js';
 import type { Store } from './store.js';
 
@@ -33,13 +34,27 @@ export function createRefresher(store: Store, env: NodeJS.ProcessEnv = process.e
     })));
     const raw = fetched.flatMap(result => result.candidates);
     const byId = new Map(raw.map(article => [article.id, article]));
-    const updates = existing.flatMap(article => {
-      const observed = byId.get(article.id)?.keywords ?? [];
-      const keywords = [...new Set([...(article.keywords ?? []), ...observed])];
-      return keywords.length > (article.keywords?.length ?? 0) ? [{ ...article, keywords }] : [];
-    });
-    const importedNew = distinctStories(imported, existing);
-    const fresh = distinctStories(raw, [...existing, ...importedNew]).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+    const importedById = new Map(imported.map(article => [article.id, article]));
+    const verified = existing.filter(article => article.publicationDateVerified);
+    const legacy = new Set(existing.filter(article => !article.publicationDateVerified));
+    const updates: Article[] = [];
+    for (const article of existing) {
+      const observed = byId.get(article.id);
+      const confirmed = importedById.get(article.id) ?? observed;
+      const keywords = [...new Set([...(article.keywords ?? []), ...(observed?.keywords ?? [])])];
+      if (legacy.has(article) && confirmed) {
+        const corrected: Article = { ...article, keywords, publishedAt: confirmed.publishedAt, publicationDateVerified: true };
+        if (!verified.some(other => sameStory(corrected, other))) {
+          updates.push(corrected);
+          verified.push(corrected);
+          legacy.delete(article);
+          continue;
+        }
+      }
+      if (keywords.length > (article.keywords?.length ?? 0)) updates.push({ ...article, keywords });
+    }
+    const importedNew = distinctStories(imported, verified);
+    const fresh = distinctStories(raw, [...verified, ...importedNew]).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
     // Start with candidates from each configured publisher before filling the rest of the batch.
     const represented = [...new Set(fresh.map(article => article.source))].flatMap(source =>
       fresh.filter(article => article.source === source).slice(0, 3));
@@ -61,7 +76,20 @@ export function createRefresher(store: Store, env: NodeJS.ProcessEnv = process.e
     }
     if (translated.length < pending.length && failures === 0) report('headline translation',
       new Error('Configure TRANSLATION_BASE_URL and TRANSLATION_MODEL or provide verified Hebrew headlines.'));
-    const changes = store.saveEdition({ id: randomUUID(), at: new Date(now).toISOString() }, [...importedNew, ...translated], updates);
+    // Retain both publishers' identifiers when verified coverage takes over a legacy event.
+    const unconfirmed = [...legacy];
+    const legacyEvents = new Map(unconfirmed.map(article => [article.eventId, article]));
+    const articles = [...importedNew, ...translated].map(article => {
+      const previous = legacyEvents.get(article.eventId) ?? unconfirmed.find(other => sameStory(article, other));
+      if (!previous) return article;
+      return {
+        ...article,
+        eventId: previous.eventId,
+        alternateIds: [...(previous.alternateIds ?? []), previous.id],
+        alternateEventIds: [...(previous.alternateEventIds ?? []), article.eventId],
+      };
+    });
+    const changes = store.saveEdition({ id: randomUUID(), at: new Date(now).toISOString() }, articles, updates);
     status = failures ? (store.edition() ? 'partial' : 'error') : 'idle';
     console.info(`Daily-news refresh: ${sources.length} RSS feeds, ${fresh.length} new candidates, ${changes} records saved.`);
   }

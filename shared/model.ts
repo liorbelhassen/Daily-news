@@ -20,6 +20,9 @@ export type Article = {
   region: string;
   source: string;
   publishedAt: string;
+  publicationDateVerified?: true;
+  alternateIds?: string[];
+  alternateEventIds?: string[];
   eventId: string;
   eventTerms?: string[];
   heUrl?: string;

@@ -58,13 +58,19 @@ export class Store {
     return [...new Set(labels)];
   }
 
-  saveEdition(edition: Edition, articles: Article[], keywordUpdates: Article[] = []) {
+  saveEdition(edition: Edition, articles: Article[], updates: Article[] = []) {
     return this.transaction(() => {
       let changes = 0;
-      const upsert = this.db.prepare('INSERT OR IGNORE INTO articles (id, event_id, data) VALUES (?, ?, ?)');
+      const upsert = this.db.prepare(`
+        INSERT INTO articles (id, event_id, data) VALUES (?, ?, ?)
+        ON CONFLICT(id) DO NOTHING
+        ON CONFLICT(event_id) DO UPDATE SET id = excluded.id, data = excluded.data
+        WHERE json_extract(articles.data, '$.publicationDateVerified') IS NOT 1
+          AND json_extract(excluded.data, '$.publicationDateVerified') IS 1
+      `);
       const update = this.db.prepare('UPDATE articles SET data = ? WHERE id = ?');
       for (const article of articles) changes += Number(upsert.run(article.id, article.eventId, JSON.stringify(article)).changes);
-      for (const article of keywordUpdates) changes += Number(update.run(JSON.stringify(article), article.id).changes);
+      for (const article of updates) changes += Number(update.run(JSON.stringify(article), article.id).changes);
       if (changes) {
         this.db.prepare('INSERT OR IGNORE INTO editions (id, at) VALUES (?, ?)').run(edition.id, edition.at);
         this.db.prepare(`
@@ -78,21 +84,27 @@ export class Store {
 
   board(
     id: string, mode: Mode, refresh: Board['refresh'], operationId?: string,
-    change?: (reader: Reader, catalog: Article[], fresh: Article[], now: number) => void,
+    change?: (reader: Reader, catalog: Article[], now: number) => void,
   ): Board {
     return this.transaction(() => {
       const row = this.db.prepare('SELECT data FROM readers WHERE id = ?').get(id);
       const reader = row ? JSON.parse(row.data as string) as Reader : newReader();
       const before = JSON.stringify(reader);
-      const catalog = this.catalog();
       const edition = this.edition();
       const now = Date.now();
-      const fresh = mode === 'demo' ? catalog : catalog.filter(article => isFresh(article, now));
-      if (edition && (!operationId || !reader.editionId || reader.layoutVersion !== LAYOUT_VERSION)) {
-        fillEdition(reader, catalog, edition, mode === 'demo' ? () => 0 : Math.random, fresh, mode === 'live');
+      const stored = this.catalog();
+      const catalog = mode === 'demo' ? stored : stored.filter(article =>
+        article.publicationDateVerified && isFresh(Date.parse(article.publishedAt), now));
+      const previousEdition = edition?.id !== reader.editionId && reader.editionId && operationId &&
+        reader.layoutVersion === LAYOUT_VERSION
+        ? this.db.prepare('SELECT id, at FROM editions WHERE id = ?').get(reader.editionId) as Edition | undefined
+        : undefined;
+      const shownEdition = previousEdition ?? edition;
+      if (shownEdition) {
+        fillEdition(reader, catalog, shownEdition, mode === 'demo' ? () => 0 : Math.random, mode === 'live');
       }
       if (operationId && change && !this.db.prepare('SELECT 1 FROM requests WHERE reader_id = ? AND id = ?').get(id, operationId)) {
-        change(reader, catalog, fresh, now);
+        change(reader, catalog, now);
         this.db.prepare('INSERT INTO requests (reader_id, id) VALUES (?, ?)').run(id, operationId);
       }
       const after = JSON.stringify(reader);
@@ -101,14 +113,15 @@ export class Store {
         ON CONFLICT (id) DO UPDATE SET data = excluded.data
       `).run(id, after);
       const byId = new Map(catalog.map(article => [article.id, article]));
-      const shownEdition = edition?.id === reader.editionId ? edition :
-        this.db.prepare('SELECT id, at FROM editions WHERE id = ?').get(reader.editionId) as Edition | undefined;
       return {
-        slots: reader.slots.map(slot => ({ ...slot, article: byId.get(slot.articleId ?? '') ?? null })),
+        slots: reader.slots.flatMap(slot => {
+          const article = byId.get(slot.articleId ?? '');
+          return article ? [{ ...slot, article }] : [];
+        }),
         categories: [...categories, ...reader.custom],
         canUndo: reader.lastVote !== null,
         hasPreferences: Object.values(reader.weights).some(weight => weight !== 0) || reader.lastVote !== null,
-        edition: shownEdition ?? null, mode, refresh,
+        edition: shownEdition, mode, refresh,
       };
     });
   }

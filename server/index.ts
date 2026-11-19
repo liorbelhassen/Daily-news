@@ -80,13 +80,13 @@ app.post('/api/board/:command', (request, response) => {
         invalid('ההצבעה אינה תקינה.');
         return;
       }
-      response.json(save((reader, catalog, fresh, now) => {
-        applyVote(reader, slotId, articleId, vote, catalog, fresh, now);
+      response.json(save((reader, catalog, now) => {
+        applyVote(reader, slotId, articleId, vote, catalog, now);
       }));
       return;
     }
     case 'undo':
-      response.json(save(reader => { undoVote(reader); }));
+      response.json(save((reader, catalog) => { undoVote(reader, catalog); }));
       return;
     case 'reset':
       response.json(save(resetPreferences));
@@ -98,13 +98,13 @@ app.post('/api/board/:command', (request, response) => {
         invalid('יש להזין שם קטגוריה באורך של עד 70 תווים.');
         return;
       }
-      response.json(save((reader, catalog, fresh, now) => {
+      response.json(save((reader, catalog, now) => {
         if ([...categories, ...reader.custom].some(category => normalize(category.label) === normalize(label)) ||
           reader.custom.length >= 30) return;
         const color = `custom-${reader.custom.length % 5}`;
         const category = { id: randomUUID(), label, color };
         reader.custom.push(category);
-        populateCategory(reader, category.id, catalog, now, fresh);
+        populateCategory(reader, category.id, catalog, now);
       }));
       return;
     }
