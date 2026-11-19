@@ -177,7 +177,6 @@ h2 { margin: 0; font-size: 1.25rem; overflow-wrap: anywhere; }
   overflow-anchor: none;
 }
 .story :focus-visible { outline-color: var(--ink); }
-.story.featured { grid-column: span 2; padding-inline: 23px; }
 .story-category {
   display: flex;
   align-items: center;
@@ -204,7 +203,7 @@ h2 { margin: 0; font-size: 1.25rem; overflow-wrap: anywhere; }
   letter-spacing: -.035em;
   overflow-wrap: anywhere;
 }
-.featured .story-copy > h3 { max-width: 20ch; font-size: clamp(1.65rem, 3.8vw, 3rem); line-height: 1.1; }
+.featured .story-copy > h3 { font-size: clamp(1.4rem, 2.65vw, 2rem); line-height: 1.15; }
 .feature-mark {
   position: absolute;
   z-index: 0;
@@ -312,19 +311,18 @@ h2 { margin: 0; font-size: 1.25rem; overflow-wrap: anywhere; }
   .preferences button { min-height: 36px; font-size: .76rem; }
   .feedback { min-height: 2.8em; }
   .stories { grid-auto-rows: clamp(214px, 40vw, 250px); gap: 10px; }
-  .story, .story.featured { padding: 14px; }
+  .story { padding: 14px; }
   .story-copy { margin-top: 8px; }
   .story-copy > h3 { font-size: clamp(1.28rem, 5.35vw, 1.65rem); }
-  .featured .story-copy > h3 { font-size: clamp(1.39rem, 6vw, 2rem); max-width: 19ch; }
+  .featured .story-copy > h3 { font-size: clamp(1.39rem, 5.75vw, 1.8rem); }
   .feature-mark { inset-block-start: 11px; inset-inline-end: 13px; inline-size: 52px; block-size: 52px; font-size: 1.7rem; }
   .metadata { font-size: .78rem; }
   .source-links a { font-size: .83rem; min-height: 33px; }
 }
 @media (max-width: 520px) {
   .stories { grid-template-columns: minmax(0, 1fr); grid-auto-rows: clamp(205px, 64vw, 315px); }
-  .story.featured { grid-column: auto; }
 }
 @media (max-width: 360px) {
-  .story, .story.featured { padding-inline: 11px; }
+  .story { padding-inline: 11px; }
   .feature-mark { display: none; }
 }
