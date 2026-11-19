@@ -10,6 +10,7 @@ const defaultStatus = '+ עוד בנושא הזה · − פחות בנושא ה�
 const dateFormat = new Intl.DateTimeFormat('he-IL', {
   timeZone: 'Asia/Jerusalem', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
 });
+const articleDate = new Intl.DateTimeFormat('he-IL', { timeZone: 'Asia/Jerusalem', dateStyle: 'medium' });
 
 function makeRequestId() {
   // getRandomValues is also available when running on a local network over HTTP.
@@ -30,12 +31,13 @@ async function requestBoard(path = '', data?: object): Promise<Board> {
   return result;
 }
 
-function Card({ slot, category, featured, pending, locked, vote }: {
+function Card({ slot, category, featured, pending, locked, live, vote }: {
   slot: CardSlot;
   category: Category;
   featured: boolean;
   pending: boolean;
   locked: boolean;
+  live: boolean;
   vote: (slot: CardSlot, direction: 1 | -1) => void;
 }) {
   const card = useRef<HTMLElement>(null);
@@ -68,6 +70,8 @@ function Card({ slot, category, featured, pending, locked, vote }: {
           <p className="metadata">
             <bdi>{article.region}</bdi><span aria-hidden="true">·</span><bdi>{article.source}</bdi>
             {slot.discovery && <><span aria-hidden="true">·</span><bdi>{article.topics[0]}</bdi></>}
+            {live && <><span aria-hidden="true">·</span>
+              <time dateTime={article.publishedAt}>{articleDate.format(new Date(article.publishedAt))}</time></>}
           </p>
         )}
         {pending && <div className="loading-line" aria-hidden="true" />}
@@ -168,9 +172,12 @@ function App() {
   function vote(slot: CardSlot, direction: 1 | -1) {
     if (!slot.article) return;
     setNotice('מחפשים כתבה נוספת…');
-    void mutate('vote', { slotId: slot.id, articleId: slot.article.id, vote: direction }, slot.id, next => {
+    void mutate('vote', {
+      slotId: slot.id, articleId: slot.article.id, vote: direction,
+      categoryId: filter !== ALL ? filter : undefined,
+    }, slot.id, next => {
       const replacement = next.slots.find(item => item.id === slot.id)?.article;
-      setNotice(replacement?.id === slot.article?.id ? 'הלוח עודכן.' :
+      setNotice(replacement?.id === slot.article?.id ? 'הכתבה נשארה במשבצת עד שתהיה חלופה זמינה.' :
         replacement ? 'כתבה חדשה הופיעה באותה משבצת.' : 'אין כרגע כתבה נוספת מתאימה.');
     });
   }
@@ -202,7 +209,8 @@ function App() {
   const allCategories = board?.categories ?? builtIns;
   const byId = new Map(allCategories.map(category => [category.id, category]));
   const visible = board?.slots.filter(slot =>
-    filter === ALL ? !slot.filteredOnly : slot.categoryId === filter || slot.previousCategoryIds?.includes(filter)) ?? [];
+    filter === ALL ? !slot.filteredOnly : slot.categoryId === filter ||
+      slot.linkedCategoryIds?.includes(filter) || slot.previousCategoryIds?.includes(filter)) ?? [];
   // The feature belongs to the discovery slot, even while its article is being replaced.
   const featuredId = filter === ALL || filter === 'discover' ? visible.find(slot => slot.discovery)?.id : undefined;
   const currentLabel = filter === ALL ? 'כל הכותרות' : byId.get(filter)?.label ?? 'כל הכותרות';
@@ -288,8 +296,10 @@ function App() {
           <div className="board-state" role="status">טוענים כותרות…</div>
         ) : visible.length ? (
           <div className="stories">
-            {visible.map(slot => <Card key={slot.id} slot={slot} category={byId.get(slot.categoryId)!}
-              featured={slot.id === featuredId} pending={pending === slot.id} locked={pending !== null} vote={vote} />)}
+            {visible.map(slot => <Card key={slot.id} slot={slot}
+              category={byId.get(slot.linkedCategoryIds?.includes(filter) ? filter : slot.categoryId)!}
+              featured={slot.id === featuredId} pending={pending === slot.id} locked={pending !== null}
+              live={board.mode === 'live'} vote={vote} />)}
           </div>
         ) : (
           <div className="board-state">
