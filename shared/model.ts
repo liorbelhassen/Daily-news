@@ -31,6 +31,7 @@ export type Slot = {
   discovery: boolean;
   filteredOnly?: boolean;
   previousCategoryIds?: string[];
+  linkedCategoryIds?: string[];
   categoryId: string;
   articleId: string | null;
 };

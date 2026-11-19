@@ -71,13 +71,16 @@ app.post('/api/board/:command', (request, response) => {
   const invalid = (error: string) => { response.status(400).json({ error }); };
   switch (request.params.command) {
     case 'vote': {
-      const { slotId, articleId, vote } = input;
+      const { slotId, articleId, vote, categoryId } = input;
       if (typeof slotId !== 'string' || !uuid.test(slotId) || typeof articleId !== 'string' ||
-        !/^[a-f0-9]{24}$/.test(articleId) || (vote !== 1 && vote !== -1)) {
+        !/^[a-f0-9]{24}$/.test(articleId) || (vote !== 1 && vote !== -1) ||
+        (categoryId !== undefined && (typeof categoryId !== 'string' || categoryId.length > 70))) {
         invalid('ההצבעה אינה תקינה.');
         return;
       }
-      response.json(save((reader, catalog, fresh, now) => { applyVote(reader, slotId, articleId, vote, catalog, fresh, now); }));
+      response.json(save((reader, catalog, fresh, now) => {
+        applyVote(reader, slotId, articleId, vote, catalog, fresh, now, Math.random, categoryId);
+      }));
       return;
     }
     case 'undo':
@@ -93,13 +96,13 @@ app.post('/api/board/:command', (request, response) => {
         invalid('יש להזין שם קטגוריה באורך של עד 70 תווים.');
         return;
       }
-      response.json(save((reader, _catalog, fresh, now) => {
+      response.json(save((reader, catalog, fresh, now) => {
         if ([...categories, ...reader.custom].some(category => normalize(category.label) === normalize(label)) ||
           reader.custom.length >= 30) return;
         const color = `custom-${reader.custom.length % 5}`;
         const category = { id: randomUUID(), label, color };
         reader.custom.push(category);
-        populateCategory(reader, category.id, fresh, now);
+        populateCategory(reader, category.id, catalog, now, fresh);
       }));
       return;
     }
