@@ -41,11 +41,15 @@ function relatedEvents(title: string, summary: string, published: number) {
   const month = new Date(published).toISOString().slice(0, 7);
   if (amount && /\b(?:raises?|raised|secures?|secured|funding|fundraise|seed)\b/i.test(title)) {
     // The subject of a funding headline may be named only in the search snippet.
-    const named = title.match(/\b([A-Z][\w-]+(?: [A-Z][\w-]+){0,2}) (?:raises?|raised|secures?|secured)\b/)?.[1];
-    const snippet = summary.match(/(?:^|[,.]\s+)([A-Z][\w-]+(?: [A-Z][\w-]+){0,2}) (?:is|has|raises?|raised|develops?|builds?|secured)\b/)?.[1];
-    const company = snippet && (!named || snippet.startsWith(named + ' ')) ? snippet : named;
+    const named = normalize(title.match(/\b([A-Z][\w-]+(?: [A-Z][\w-]+){0,2}) (?:raises?|raised|secures?|secured)\b/)?.[1] ?? '');
+    const snippet = normalize(summary.match(/(?:^|[,.]\s+)([A-Z][\w-]+(?: [A-Z][\w-]+){0,2}) (?:is|has|raises?|raised|develops?|builds?|secured)\b/)?.[1] ?? '');
+    // A snippet can corroborate a shorthand name after a title-cased descriptor such as "Israeli Startup".
+    const withoutDescriptor = named.replace(/^(?:\S+ )?(?:startup|company|firm) /, '');
+    const company = snippet && (!named || [named, withoutDescriptor].some(name => (snippet + ' ').startsWith(name + ' ')))
+      ? snippet
+      : named;
     if (company) {
-      ids.push(storyId(['funding round', normalize(company), amount[1], amount[2].toLowerCase()[0], month]));
+      ids.push(storyId(['funding round', company, amount[1], amount[2].toLowerCase()[0], month]));
     }
   }
   const headline = normalize(title);

@@ -665,7 +665,7 @@ test('personal search merges existing coverage of the same funding round and pre
   const db = new Store(':memory:');
   const first = { ...story('Israeli startup raises $11 million Seed for AI security', 'market', ['גיוסים']),
     personalOnly: true as const, personalQueries: ['israeli startups'] };
-  const second = { ...story('Israeli cybersecurity startup Vero raises $11M to secure enterprise AI', 'market', ['גיוסים']),
+  const second = { ...story('Israeli Startup Vero raises $11M to secure enterprise AI', 'market', ['גיוסים']),
     personalOnly: true as const, personalQueries: ['israeli technology'] };
   const item = (article: Article, summary: string) => `<item><title>${article.title}</title><description>${summary}</description>
     <link>${article.url}</link><pubDate>${new Date(now).toUTCString()}</pubDate></item>`;
