@@ -23,6 +23,8 @@ export type Article = {
   publicationDateVerified?: true;
   alternateIds?: string[];
   alternateEventIds?: string[];
+  personalOnly?: true;
+  personalQueries?: string[];
   eventId: string;
   eventTerms?: string[];
   heUrl?: string;

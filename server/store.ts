@@ -58,7 +58,7 @@ export class Store {
     return [...new Set(labels)];
   }
 
-  saveEdition(edition: Edition, articles: Article[], updates: Article[] = []) {
+  saveEdition(edition: Edition, articles: Article[], updates: Article[] = [], superseded: Set<string> = new Set()) {
     return this.transaction(() => {
       let changes = 0;
       const upsert = this.db.prepare(`
@@ -69,8 +69,14 @@ export class Store {
           AND json_extract(excluded.data, '$.publicationDateVerified') IS 1
       `);
       const update = this.db.prepare('UPDATE articles SET data = ? WHERE id = ?');
-      for (const article of articles) changes += Number(upsert.run(article.id, article.eventId, JSON.stringify(article)).changes);
-      for (const article of updates) changes += Number(update.run(JSON.stringify(article), article.id).changes);
+      const remove = this.db.prepare('DELETE FROM articles WHERE id = ?');
+      for (const id of superseded) changes += Number(remove.run(id).changes);
+      for (const article of articles) {
+        if (!superseded.has(article.id)) changes += Number(upsert.run(article.id, article.eventId, JSON.stringify(article)).changes);
+      }
+      for (const article of updates) {
+        if (!superseded.has(article.id)) changes += Number(update.run(JSON.stringify(article), article.id).changes);
+      }
       if (changes) {
         this.db.prepare('INSERT OR IGNORE INTO editions (id, at) VALUES (?, ?)').run(edition.id, edition.at);
         this.db.prepare(`
@@ -116,7 +122,9 @@ export class Store {
       return {
         slots: reader.slots.flatMap(slot => {
           const article = byId.get(slot.articleId ?? '');
-          return article ? [{ ...slot, article }] : [];
+          if (!article) return [];
+          const { personalQueries, personalOnly, ...publicArticle } = article;
+          return [{ ...slot, article: publicArticle }];
         }),
         categories: [...categories, ...reader.custom],
         canUndo: reader.lastVote !== null,

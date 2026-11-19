@@ -271,7 +271,7 @@ function App() {
             addButton.current?.focus();
           }
         }}>
-        <label htmlFor="category">שם קטגוריה חדשה</label>
+        <label htmlFor="category">נושא לחיפוש חדשות</label>
         <div className="form-controls">
           <input id="category" ref={formInput} dir="auto" maxLength={70} value={name}
             onChange={event => { setName(event.target.value); setFormError(''); }}

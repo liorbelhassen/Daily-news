@@ -19,8 +19,8 @@ export const defaultSources: Source[] = [
 ];
 
 export type Candidate = Omit<Article, 'titleHe'>;
-const parser = new Parser<object, { published?: string; updated?: string }>({
-  customFields: { item: ['published', 'updated'] },
+const parser = new Parser<object, { published?: string; updated?: string; publisher?: string }>({
+  customFields: { item: ['published', 'updated', ['News:Source', 'publisher']] },
 });
 const WEEK = 7 * 86_400_000;
 export const isFresh = (published: number, now: number) =>
@@ -68,8 +68,8 @@ async function readXml(response: Response) {
   return xml;
 }
 
-export async function readSource(source: Source, now: number, queries: string[] = []) {
-  const response = await fetch(source.url, {
+export async function readFeed(url: string) {
+  const response = await fetch(url, {
     headers: { Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml', 'User-Agent': 'Daily-news RSS reader/1.0' },
     signal: AbortSignal.timeout(12_000),
   });
@@ -77,7 +77,11 @@ export async function readSource(source: Source, now: number, queries: string[] 
     await response.body?.cancel();
     throw new Error(`HTTP ${response.status}`);
   }
-  const feed = await parser.parseString(await readXml(response));
+  return parser.parseString(await readXml(response));
+}
+
+export async function readSource(source: Source, now: number, queries: string[] = []) {
+  const feed = await readFeed(source.url);
   const candidates: Candidate[] = [];
   for (const item of feed.items.slice(0, 55)) {
     const title = plain(item.title ?? '').slice(0, 360);
